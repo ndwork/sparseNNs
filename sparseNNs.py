@@ -22,6 +22,10 @@ torch.manual_seed(1)
 
 ### Function definitions ###
 
+def addOneToAllWeights(m):
+  if hasattr(m, 'weight'):
+    m.weight.data += 1
+
 def imshow(img):  # function to show an image
   img = img / 2 + 0.5     # unnormalize
   npimg = img.numpy()
@@ -126,18 +130,13 @@ printLayerNames( net )
 #    m.weight.data += 1
 #
 #net.apply(addOne)   # adds one to all of the weights of the convolution layers
-#
-#def addOneToAllWeights(m):
-#  if hasattr(m, 'weight'):
-#    m.weight.data += 1
-#
+
+# Test to make sure that we can alter the weights of the neural network
 #net.apply(addOneToAllWeights)  # adds one to all of the weights in the model
-#
-## net.apply(addOneToAllWeights)
 
 
 # Test to make sure that soft thresholding woks.
-#net.apply( lambda w: softThreshWeights(w,t=1) )  # This seems to work
+#net.apply( lambda w: softThreshWeights(w,t=1) )  #Applies soft threshold to all weights
 
 
 #list(net.parameters())  # lists the parameter values
@@ -187,11 +186,11 @@ dataiter = iter(testloader)
 images, labels = dataiter.next()
 
 # print images
-imshow(torchvision.utils.make_grid(images))
+imshow( torchvision.utils.make_grid(images) )
 print('GroundTruth: ', ' '.join('%5s' % classes[labels[j]] for j in range(4)))
 
 
-outputs = net(Variable(images))
+outputs = net( Variable(images) )
 _, predicted = torch.max(outputs.data, 1)
 
 print( 'Predicted: ', ' '.join('%5s' % classes[predicted[j]] for j in range(4)) )
