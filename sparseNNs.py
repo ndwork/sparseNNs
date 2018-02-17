@@ -50,6 +50,11 @@ def loadData( datacase=0 ):
     print( 'Error: incorrect datase entered' )
 
 
+def printLayerNames(net):
+  for (name,layer) in net._modules.items():
+    print(name)  # prints the names of all the parameters
+
+
 def softThreshWeights(m,t):
   # Apply a soft threshold with parameter t to the weights of a nn.Module object
   if hasattr(m, 'weight'):
@@ -112,6 +117,7 @@ print(' '.join('%5s' % classes[labels[j]] for j in range(4)))
 
 
 net = Net()  # this is my model; it has parameters
+printLayerNames( net )
 
 
 #def addOne(m):
@@ -133,10 +139,6 @@ net = Net()  # this is my model; it has parameters
 # Test to make sure that soft thresholding woks.
 #net.apply( lambda w: softThreshWeights(w,t=1) )  # This seems to work
 
-
-#def printLayerNames(net):
-#  for (name,layer) in net._modules.items():
-#    print(name)  # prints the names of all the parameters
 
 #list(net.parameters())  # lists the parameter values
 #list(net.conv1.parameters())[0]  # shows the parameters of the conv1 layer
