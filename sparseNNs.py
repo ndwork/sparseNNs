@@ -26,6 +26,7 @@ def addOneToAllWeights(m):
   if hasattr(m, 'weight'):
     m.weight.data += 1
 
+
 def imshow(img):  # function to show an image
   img = img / 2 + 0.5     # unnormalize
   npimg = img.numpy()
@@ -78,8 +79,8 @@ class Net(nn.Module):
     self.fc3 = nn.Linear( 84, 10 )
 
   def forward(self, x):
-    x = F.max_pool2d( F.relu(self.conv1(x)), 2, 2 )
-    x = F.max_pool2d( F.relu(self.conv2(x)), 2, 2 )
+    x = F.max_pool2d( F.softplus( self.conv1(x), beta=100 ), 2, 2 )
+    x = F.max_pool2d( F.softplus( self.conv2(x), beta=100 ), 2, 2 )
     x = x.view(-1, 16 * 5 * 5)  # converts matrix to vector
     x = F.relu( self.fc1(x) )
     x = F.relu( self.fc2(x) )
