@@ -125,28 +125,16 @@ net = Net()  # this is my model; it has parameters
 printLayerNames( net )
 
 
-#def addOne(m):
-#  if type(m) == nn.Conv2d:
-#    print(m)
-#    m.weight.data += 1
-#
-#net.apply(addOne)   # adds one to all of the weights of the convolution layers
-
 # Test to make sure that we can alter the weights of the neural network
 #net.apply(addOneToAllWeights)  # adds one to all of the weights in the model
-
 
 # Test to make sure that soft thresholding woks.
 #net.apply( lambda w: softThreshWeights(w,t=1) )  #Applies soft threshold to all weights
 
 
-#list(net.parameters())  # lists the parameter values
+#list(net.parameters())  # lists the parameter (or weight) values
+#list(net.conv1.parameters())  # lists the parameters of the conv1 layer
 #list(net.conv1.parameters())[0]  # shows the parameters of the conv1 layer
-
-
-#http://pytorch.org/docs/master/nn.html
-
-#list(net.conv1.parameters())  # lists the weights of the conv1 layer
 
 
 criterion = nn.CrossEntropyLoss()
