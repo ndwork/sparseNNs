@@ -15,9 +15,6 @@ import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 
-# Parameters for this code
-datacase = 0
-torch.manual_seed(1)
 
 
 ### Function definitions ###
@@ -25,6 +22,22 @@ torch.manual_seed(1)
 def addOneToAllWeights(m):
   if hasattr(m, 'weight'):
     m.weight.data += 1
+
+
+def crossEntropyLoss( outputs, labels ):
+  """
+  Compute the cross entropy loss given outputs and labels.
+
+  Inputs:
+    outputs: (Variable) dimension batch_size x 6 - output of the model
+    labels: (Variable) dimension batch_size, where each element is a value in [0, 1, ..., nClasses]
+
+  Output:
+    loss (Variable): cross entropy loss for all images in the batch
+  """
+  num_examples = outputs.size()[0]
+  return -torch.sum(outputs[range(num_examples), labels])/num_examples
+
 
 
 def imshow(img):  # function to show an image
@@ -85,6 +98,7 @@ class Net(nn.Module):
     x = F.relu( self.fc1(x) )
     x = F.relu( self.fc2(x) )
     x = self.fc3( x )
+    x = F.log_softmax( x, dim=1 )
     return x
 
 
@@ -101,116 +115,163 @@ class Net(nn.Module):
 # Why doesn't the example show images when running from the command line?
 
 
+# Parameters for this code
+class Params:
+  datacase = 0
+  learningRate = 0.001
+  nEpochs = 2 
+  seed = 1
 
 
-# plt.imshow( np.zeros((100,100)) )  # This works fine
+def trainWithStochSubGradDescent( net, criterion, params ):
+  nEpochs = params.nEpochs
+  learningRate = params.learningRate
+
+  #optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=0.9 )
+  optimizer = optim.Adam( net.parameters(), lr=learningRate )
+
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    for i, data in enumerate( trainloader, 0 ):
+      # get the inputs
+      inputs, labels = data
+
+      # wrap them in Variable
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      # zero the parameter gradients
+      optimizer.zero_grad()
+
+      # forward + backward + optimize
+      outputs = net(inputs)
+      loss = criterion(outputs, labels)
+      loss.backward()
+      optimizer.step()
+
+      # print statistics
+      running_loss += loss.data[0]
+      if i % 1000 == 999:    # print every 1000 mini-batches
+        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
+        running_loss = 0.0
 
 
-(trainset, trainloader, testset, testloader, classes) = loadData( datacase )
+def trainWithStochSubGradDescent_regL1Norm( net, criterion, params ):
+  nEpochs = params.nEpochs
+  learningRate = params.learningRate
 
-# get some random training images
-dataiter = iter( trainloader )
-images, labels = dataiter.next()
+  #optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=0.9 )
+  optimizer = optim.Adam( net.parameters(), lr=learningRate )
 
-# show images
-imshow( torchvision.utils.make_grid(images) )
-# print labels
-print(' '.join('%5s' % classes[labels[j]] for j in range(4)))
+  for epoch in range( nEpochs ):  # loop over the dataset multiple times
 
+    running_loss = 0.0
+    for i, data in enumerate( trainloader, 0 ):
+      # get the inputs
+      inputs, labels = data
 
+      # wrap them in Variable
+      inputs, labels = Variable(inputs), Variable(labels)
 
+      # zero the parameter gradients
+      optimizer.zero_grad()
 
+      # forward + backward + optimize
+      outputs = net(inputs)
+      #loss = torch.sum( criterion(outputs, labels), F.l1_loss(net.parameters(), reduce=False )
+      #loss = criterion(outputs, labels)
+      loss = F.l1_loss(outputs, labels)
+      loss.backward()
+      optimizer.step()
 
-net = Net()  # this is my model; it has parameters
-printLayerNames( net )
-
-
-# Test to make sure that we can alter the weights of the neural network
-#net.apply(addOneToAllWeights)  # adds one to all of the weights in the model
-
-# Test to make sure that soft thresholding woks.
-#net.apply( lambda w: softThreshWeights(w,t=1) )  #Applies soft threshold to all weights
-
-
-#list(net.parameters())  # lists the parameter (or weight) values
-#list(net.conv1.parameters())  # lists the parameters of the conv1 layer
-#list(net.conv1.parameters())[0]  # shows the parameters of the conv1 layer
-
-
-criterion = nn.CrossEntropyLoss()
-  # Softmax is embedded in loss function
-  # look at net.py (by Surag) to see how to do it explicitly
-optimizer = optim.SGD( net.parameters(), lr=0.001, momentum=0.9 )
-
-for epoch in range(2):  # loop over the dataset multiple times
-
-  running_loss = 0.0
-  for i, data in enumerate( trainloader, 0 ):
-    # get the inputs
-    inputs, labels = data
-
-    # wrap them in Variable
-    inputs, labels = Variable(inputs), Variable(labels)
-
-    # zero the parameter gradients
-    optimizer.zero_grad()
-
-    # forward + backward + optimize
-    outputs = net(inputs)
-    loss = criterion(outputs, labels)
-    loss.backward()
-    optimizer.step()
-
-    # print statistics
-    running_loss += loss.data[0]
-    if i % 1000 == 999:    # print every 1000 mini-batches
-      print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
-      running_loss = 0.0
-
-print('Finished Training')
+      # print statistics
+      running_loss += loss.data[0]
+      if i % 1000 == 999:    # print every 1000 mini-batches
+        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
+        running_loss = 0.0
 
 
+if __name__ == '__main__':
 
-dataiter = iter(testloader)
-images, labels = dataiter.next()
+  params = Params()
+  torch.manual_seed( params.seed )
 
-# print images
-imshow( torchvision.utils.make_grid(images) )
-print('GroundTruth: ', ' '.join('%5s' % classes[labels[j]] for j in range(4)))
+  (trainset, trainloader, testset, testloader, classes) = loadData( params.datacase )
+
+  # get some random training images
+  dataiter = iter( trainloader )
+  images, labels = dataiter.next()
+
+  # show images
+  imshow( torchvision.utils.make_grid(images) )
+  # print labels
+  print(' '.join('%5s' % classes[labels[j]] for j in range(4)))
 
 
-outputs = net( Variable(images) )
-_, predicted = torch.max(outputs.data, 1)
-
-print( 'Predicted: ', ' '.join('%5s' % classes[predicted[j]] for j in range(4)) )
+  net = Net()  # this is my model; it has parameters
+  printLayerNames( net )
 
 
-# Determine accuracy on test set
-correct = 0
-total = 0
-for data in testloader:
-  images, labels = data
-  outputs = net(Variable(images))
+  # Test to make sure that we can alter the weights of the neural network
+  #net.apply(addOneToAllWeights)  # adds one to all of the weights in the model
+  
+  # Test to make sure that soft thresholding woks.
+  #net.apply( lambda w: softThreshWeights(w,t=1) )  #Applies soft threshold to all weights
+  
+  
+  #list(net.parameters())  # lists the parameter (or weight) values
+  #list(net.conv1.parameters())  # lists the parameters of the conv1 layer
+  #list(net.conv1.parameters())[0]  # shows the parameters of the conv1 layer
+
+
+  criterion = nn.CrossEntropyLoss()
+    # Softmax is embedded in loss function
+    # look at net.py (by Surag) to see how to do it explicitly
+
+  trainWithStochSubGradDescent( net, criterion, params )
+  #trainWithStochSubGradDescent_regL1Norm( net, criterion, params )
+
+
+  dataiter = iter(testloader)
+  images, labels = dataiter.next()
+
+  # print images
+  imshow( torchvision.utils.make_grid(images) )
+  print('GroundTruth: ', ' '.join('%5s' % classes[labels[j]] for j in range(4)))
+
+
+  outputs = net( Variable(images) )
   _, predicted = torch.max(outputs.data, 1)
-  total += labels.size(0)
-  correct += (predicted == labels).sum()
 
-print('Accuracy of the network on the 10000 test images: %d %%' % ( 100 * correct / total))
-
-class_correct = list(0. for i in range(10))
-class_total = list(0. for i in range(10))
-for data in testloader:
-  images, labels = data
-  outputs = net(Variable(images))
-  _, predicted = torch.max(outputs.data, 1)
-  c = (predicted == labels).squeeze()
-  for i in range(4):
-    label = labels[i]
-    class_correct[label] += c[i]
-    class_total[label] += 1
+  print( 'Predicted: ', ' '.join('%5s' % classes[predicted[j]] for j in range(4)) )
 
 
-for i in range(10):
-  print('Accuracy of %5s : %2d %%' % ( classes[i], 100 * class_correct[i] / class_total[i]))
+  # Determine accuracy on test set
+  correct = 0
+  total = 0
+  for data in testloader:
+    images, labels = data
+    outputs = net(Variable(images))
+    _, predicted = torch.max(outputs.data, 1)
+    total += labels.size(0)
+    correct += (predicted == labels).sum()
+
+  print('Accuracy of the network on the 10000 test images: %d %%' % ( 100 * correct / total))
+
+  class_correct = list(0. for i in range(10))
+  class_total = list(0. for i in range(10))
+  for data in testloader:
+    images, labels = data
+    outputs = net(Variable(images))
+    _, predicted = torch.max(outputs.data, 1)
+    c = (predicted == labels).squeeze()
+    for i in range(4):
+      label = labels[i]
+      class_correct[label] += c[i]
+      class_total[label] += 1
+
+
+  for i in range(10):
+    print('Accuracy of %5s : %2d %%' % ( classes[i], 100 * class_correct[i] / class_total[i]))
 
 
