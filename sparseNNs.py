@@ -39,6 +39,14 @@ def crossEntropyLoss( outputs, labels ):
   return -torch.sum(outputs[range(num_examples), labels])/num_examples
 
 
+def findNumWeights( net ):
+  nWeights = 0
+  nConvWeights = 0
+  nLinearWeights = 0
+  for w in net.parameters():
+    nWeights += np.prod(list(w.size()))
+  return nWeights
+
 
 def imshow(img):  # function to show an image
   img = img / 2 + 0.5     # unnormalize
@@ -79,48 +87,239 @@ def softThreshWeights(m,t):
     m.weight.data = torch.sign(m.weight.data) * torch.clamp( torch.abs(m.weight.data) - t, min=0 )
 
 
+def trainWithStochFISTA_regL1Norm( net, criterion, params ):
+  nEpochs = params.nEpochs
+  learningRate = params.learningRate
+  regParam = params.regParam_normL1
 
-### Object definitions ###
+  nWeights = findNumWeights( net )
 
-class Net(nn.Module):
-  def __init__(self):
-    super(Net, self).__init__()
-    self.conv1 = nn.Conv2d(3, 6, 5)
-    self.conv2 = nn.Conv2d(6, 16, 5)
-    self.fc1 = nn.Linear( 16 * 5 * 5, 120 )
-    self.fc2 = nn.Linear( 120, 84 )
-    self.fc3 = nn.Linear( 84, 10 )
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
 
-  def forward(self, x):
-    x = F.max_pool2d( F.softplus( self.conv1(x), beta=100 ), 2, 2 )
-    x = F.max_pool2d( F.softplus( self.conv2(x), beta=100 ), 2, 2 )
-    x = x.view(-1, 16 * 5 * 5)  # converts matrix to vector
-    x = F.relu( self.fc1(x) )
-    x = F.relu( self.fc2(x) )
-    x = self.fc3( x )
-    x = F.log_softmax( x, dim=1 )
-    return x
+  k = 0
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    for i, data in enumerate( trainloader, 0 ):
+      k += 1
+
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      lastParams = net.state_dict()
+      optimizer.zero_grad()
+
+      outputs = net(inputs)
+      loss = criterion(outputs, labels)
+      loss.backward()
+      optimizer.step()
+
+      # Apply soft threshold to all weights
+      net.apply( lambda w: softThreshWeights( w, t=regParam/nWeights ) )
+
+      # Perform the acceleration update
+      theseParams = net.state_dict()
+      for paramName, paramValue in theseParams.items():
+        paramValueArray = paramValue.numpy()
+        lastParamValue = lastParams[ paramName ]
+        lastParamValueArray = lastParamValue.numpy()
+        newArray = paramValueArray + k/(k+3) * ( paramValueArray - lastParamValueArray )
+        theseParams[ paramName ] = torch.from_numpy( newArray )
+
+      net.load_state_dict( theseParams )
+
+      running_loss += loss.data[0]
+      if i % 1000 == 999:    # print every 1000 mini-batches
+        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
+        running_loss = 0.0
 
 
+def trainWithStochFISTAwLS_regL1Norm( net, criterion, params ):
+  nEpochs = params.nEpochs
+  learningRate = params.learningRate
+  regParam = params.regParam_normL1
+  tHat = 1
+  s = params.s
+  r = params.r
 
-### Main Code ###
+  nWeights = findNumWeights( net )
 
-# Questions for Surag:
-# How can I change the weights (e.g. with softthresh)?  https://discuss.pytorch.org/t/how-to-modify-weights-of-layers-in-resnet/2867
-# How do I change the network to have X layers with Y nodes in each layer?
-# How do I include a softmax as the final layer?  What if I wanted just a linear output (for all real numbers)?
-# What are trainloader, testloader?  How can I use other datasets?
-  # Look at "Classifying Images of Hand Signs" to make dataset and dataloader objects
-# Why doesn't the example show the CIFAR10 images when running using PyCharm (only shows in debug mode)?
-# Why doesn't the example show images when running from the command line?
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+
+  k = 0
+  t = tHat
+  theta = 1
+  x = net.state_dict()
+  v = x
+  y = x
+  yGrad = y
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    for i, data in enumerate( trainloader, 0 ):
+      k += 1
+
+      lastX = x
+      lastT = t
+      t = s * lastT
+      lastTheta = theta
+
+      while True:
+
+        if k==1:
+          theta=1
+        else:
+          a = lastT
+          b = t*lastTheta*lastTheta
+          c = -b;
+          theta = ( -b + np.sqrt( b*b - 4*a*c ) ) / ( 2*a )
+
+        for xLayerName, xLayerValue in x.items():
+          xLayerValueArray = xLayerValue.numpy()
+          vLayerValue = v[ xLayerName ]
+          vLayerValueArray = vLayerValue.numpy()
+          yArray = (1-theta)*xLayerValueArray + theta*vLayerValueArray
+          y[ xLayerName ] = torch.from_numpy( yArray )
+
+        net.load_state_dict( y )
+        
+        inputs, labels = data
+        inputs, labels = Variable( inputs ), Variable( labels )
+        optimizer.zero_grad()
+        yOutputs = net(inputs)
+        yLoss = criterion( yOutputs, labels )
+        yLoss.backward()
+        for param_group in optimizer.param_groups:
+          param_group['lr'] = t
+        optimizer.step()
+
+        # Apply soft threshold to all weights
+        net.apply( lambda w: softThreshWeights( w, t=t*regParam/nWeights ) )
+        x = net.state_dict()
+        xOutputs = net(inputs)
+        xLoss = criterion( xOutputs, labels )
+
+        normL2Loss = 0
+        dpLoss = 0
+        for paramName, paramValue in net.named_parameters():
+          thisGrad = paramValue.grad
+          thisGradArray = (thisGrad.data).numpy()
+          xValueArray = ( x[ paramName ] ).numpy()
+          yValueArray = ( y[ paramName ] ).numpy()
+          xyDiff = xValueArray - yValueArray
+          dpLoss += np.sum( thisGradArray * xyDiff )
+          normL2Loss += np.sum( np.square( xyDiff ) )
+        normL2Loss = normL2Loss / (2*t)
+
+        if xLoss.data[0] <= yLoss.data[0] + dpLoss + normL2Loss:
+          break
+        t *= r
+
+      for xLayerName, xLayerValue in x.items():
+        xLayerValueArray = xLayerValue.numpy()
+        lastXLayerValue = lastX[ xLayerName ]
+        lastXLayerValueArray = lastXLayerValue.numpy()
+        vLayerValueArray = lastXLayerValueArray + \
+          (1/theta) * ( xLayerValueArray - lastXLayerValueArray)
+        vLayerValue = torch.from_numpy( vLayerValueArray )
+
+      running_loss += xLoss.data[0]
+      if i % 1000 == 999:    # print every 1000 mini-batches
+        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
+        running_loss = 0.0
 
 
-# Parameters for this code
-class Params:
-  datacase = 0
-  learningRate = 0.001
-  nEpochs = 2 
-  seed = 1
+def trainWithStochProxGradDescent_regL1Norm( net, criterion, params ):
+  nEpochs = params.nEpochs
+  learningRate = params.learningRate
+  regParam = params.regParam_normL1
+
+  nWeights = findNumWeights( net )
+
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      optimizer.zero_grad()
+
+      outputs = net(inputs)
+      loss = criterion(outputs, labels)
+      loss.backward()
+      optimizer.step()
+
+      # Apply soft threshold to all weights
+      net.apply( lambda w: softThreshWeights(w,t=regParam/nWeights) )
+
+      running_loss += loss.data[0]
+      if i % 1000 == 999:    # print every 1000 mini-batches
+        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
+        running_loss = 0.0
+
+
+def trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params ):
+  nEpochs = params.nEpochs
+  regParam = params.regParam_normL1
+  s = params.s
+  r = params.r
+
+  nWeights = findNumWeights( net )
+
+  lastT = 1
+  optimizer = optim.SGD( net.parameters(), lr=lastT )
+
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      optimizer.zero_grad()
+      preOutputs = net( inputs )
+      preLoss = criterion( preOutputs, labels )
+      preLoss.backward()
+
+      preParams = net.state_dict()
+      t = s * lastT
+      while True:
+        #print( "t: " + str(t) )
+
+        net.load_state_dict( preParams )
+        for param_group in optimizer.param_groups:
+          param_group['lr'] = t
+        optimizer.step()
+
+        # Apply soft threshold to all weights
+        net.apply( lambda w: softThreshWeights( w, t=t*regParam/nWeights ) )
+        postParams = net.state_dict()
+        postOutputs = net(inputs)
+        postLoss = criterion( postOutputs, labels )
+
+        normL2Loss = 0
+        dpLoss = 0
+        for paramName, paramValue in net.named_parameters():
+          thisGradArray = (paramValue.grad.data).numpy()
+          preValueArray = ( preParams[ paramName ] ).numpy()
+          postValueArray = ( postParams[ paramName ] ).numpy()
+          paramDiff = postValueArray - preValueArray
+          dpLoss += np.sum( thisGradArray * paramDiff )
+          normL2Loss += np.sum( np.square( paramDiff ) )
+        normL2Loss = normL2Loss / (2*t)
+
+        if postLoss.data[0] <= preLoss.data[0] + dpLoss + normL2Loss:
+          lastT = t
+          break
+        t *= r
+
+      running_loss += postLoss.data[0]
+      if i % 1000 == 999:    # print every 1000 mini-batches
+        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
+        running_loss = 0.0
 
 
 def trainWithStochSubGradDescent( net, criterion, params ):
@@ -159,6 +358,9 @@ def trainWithStochSubGradDescent( net, criterion, params ):
 def trainWithStochSubGradDescent_regL1Norm( net, criterion, params ):
   nEpochs = params.nEpochs
   learningRate = params.learningRate
+  regParam = params.regParam_normL1
+
+  nWeights = findNumWeights( net )
 
   #optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=0.9 )
   optimizer = optim.Adam( net.parameters(), lr=learningRate )
@@ -167,29 +369,74 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params ):
 
     running_loss = 0.0
     for i, data in enumerate( trainloader, 0 ):
-      # get the inputs
       inputs, labels = data
-
-      # wrap them in Variable
       inputs, labels = Variable(inputs), Variable(labels)
 
-      # zero the parameter gradients
       optimizer.zero_grad()
 
-      # forward + backward + optimize
       outputs = net(inputs)
-      #loss = torch.sum( criterion(outputs, labels), F.l1_loss(net.parameters(), reduce=False )
-      #loss = criterion(outputs, labels)
-      loss = F.l1_loss(outputs, labels)
+
+      mainLoss = criterion( outputs, labels )
+
+      lossL1 = Variable( torch.FloatTensor(1), requires_grad=True)
+      for W in net.parameters():
+        lossL1 = lossL1 + W.norm(1)
+      loss = mainLoss + torch.mul( lossL1, regParam/nWeights )
+
       loss.backward()
       optimizer.step()
 
-      # print statistics
       running_loss += loss.data[0]
       if i % 1000 == 999:    # print every 1000 mini-batches
         print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
         running_loss = 0.0
 
+
+
+### Object definitions ###
+
+class Net(nn.Module):
+  def __init__(self):
+    super(Net, self).__init__()
+    self.conv1 = nn.Conv2d( 3, 6, 5 )
+    self.conv2 = nn.Conv2d( 6, 16, 5 )
+    self.fc1 = nn.Linear( 16 * 5 * 5, 120 )
+    self.fc2 = nn.Linear( 120, 84 )
+    self.fc3 = nn.Linear( 84, 10 )
+
+  def forward(self, x):
+    x = F.avg_pool2d( F.softplus( self.conv1(x), beta=100 ), 2, 2 )
+    x = F.avg_pool2d( F.softplus( self.conv2(x), beta=100 ), 2, 2 )
+    x = x.view( -1, 16 * 5 * 5 )  # converts matrix to vector
+    x = F.relu( self.fc1(x) )
+    x = F.relu( self.fc2(x) )
+    x = self.fc3( x )
+    x = F.log_softmax( x, dim=1 )
+    return x
+
+
+### Main Code ###
+
+# Questions for Surag:
+# How can I change the weights (e.g. with softthresh)?  https://discuss.pytorch.org/t/how-to-modify-weights-of-layers-in-resnet/2867
+# How do I change the network to have X layers with Y nodes in each layer?
+# How do I include a softmax as the final layer?  What if I wanted just a linear output (for all real numbers)?
+# What are trainloader, testloader?  How can I use other datasets?
+  # Look at "Classifying Images of Hand Signs" to make dataset and dataloader objects
+# Why doesn't the example show the CIFAR10 images when running using PyCharm (only shows in debug mode)?
+# Why doesn't the example show images when running from the command line?
+
+
+
+# Parameters for this code
+class Params:
+  datacase = 0
+  learningRate = 0.001
+  nEpochs = 2 
+  regParam_normL1 = 0.01
+  seed = 1
+  s = 1.25  # Step size scaling parameter (must be greater than 1)
+  r = 0.9  # Backtracking line search parameter (must be between 0 and 1)
 
 if __name__ == '__main__':
 
@@ -203,9 +450,9 @@ if __name__ == '__main__':
   images, labels = dataiter.next()
 
   # show images
-  imshow( torchvision.utils.make_grid(images) )
+  #imshow( torchvision.utils.make_grid(images) )
   # print labels
-  print(' '.join('%5s' % classes[labels[j]] for j in range(4)))
+  #print(' '.join('%5s' % classes[labels[j]] for j in range(4)))
 
 
   net = Net()  # this is my model; it has parameters
@@ -224,13 +471,15 @@ if __name__ == '__main__':
   #list(net.conv1.parameters())[0]  # shows the parameters of the conv1 layer
 
 
-  criterion = nn.CrossEntropyLoss()
-    # Softmax is embedded in loss function
-    # look at net.py (by Surag) to see how to do it explicitly
+  #criterion = nn.CrossEntropyLoss()  # Softmax is embedded in loss function
+  criterion = crossEntropyLoss  # Explicit definiton of cross-entropy loss (without softmax)
 
-  trainWithStochSubGradDescent( net, criterion, params )
+  #trainWithStochSubGradDescent( net, criterion, params )
   #trainWithStochSubGradDescent_regL1Norm( net, criterion, params )
-
+  trainWithStochProxGradDescent_regL1Norm( net, criterion, params )
+  #trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params )  # Doesn't work
+  #trainWithStochFISTA_regL1Norm( net, criterion, params )
+  #trainWithStochFISTAwLS_regL1Norm( net, criterion, params )
 
   dataiter = iter(testloader)
   images, labels = dataiter.next()
