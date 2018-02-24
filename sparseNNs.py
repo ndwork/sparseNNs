@@ -18,7 +18,6 @@ import torchvision.transforms as transforms
 
 
 ### Function definitions ###
-
 def addOneToAllWeights(m):
   if hasattr(m, 'weight'):
     m.weight.data += 1
@@ -87,6 +86,16 @@ def softThreshWeights(m,t):
     m.weight.data = torch.sign(m.weight.data) * torch.clamp( torch.abs(m.weight.data) - t, min=0 )
 
 
+def sumOfSoftThreshWeights(m,t):
+  # Apply a soft threshold with parameter t to the weights of a nn.Module object
+  if hasattr(m, 'weight'):
+    normData = np.sqrt( torch.sum( torch.mul( m.weight.data, m.weight.data ) ) )
+    if normData > t:
+      m.weight.data = m.weight.data - torch.mul( m.weight.data, t/normData )
+    else:
+      m.weight.data = 0
+
+
 def trainWithStochFISTA_regL1Norm( net, criterion, params ):
   nEpochs = params.nEpochs
   learningRate = params.learningRate
@@ -150,9 +159,8 @@ def trainWithStochFISTAwLS_regL1Norm( net, criterion, params ):
   t = tHat
   theta = 1
   x = net.state_dict()
-  v = x
-  y = x
-  yGrad = y
+  v = {a:b.clone() for a,b in net.state_dict().items()}
+  y = {a:b.clone() for a,b in net.state_dict().items()}
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     running_loss = 0.0
@@ -196,6 +204,7 @@ def trainWithStochFISTAwLS_regL1Norm( net, criterion, params ):
         # Apply soft threshold to all weights
         net.apply( lambda w: softThreshWeights( w, t=t*regParam/nWeights ) )
         x = net.state_dict()
+
         xOutputs = net(inputs)
         xLoss = criterion( xOutputs, labels )
 
@@ -261,6 +270,38 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params ):
         running_loss = 0.0
 
 
+def trainWithStochProxGradDescent_regL21Norm( net, criterion, params ):
+  nEpochs = params.nEpochs
+  learningRate = params.learningRate
+  regParam = params.regParam_normL1
+
+  nWeights = findNumWeights( net )
+
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      optimizer.zero_grad()
+
+      outputs = net(inputs)
+      loss = criterion(outputs, labels)
+      loss.backward()
+      optimizer.step()
+
+      # Apply soft threshold to all weights
+      net.apply( lambda w: sumOfSoftThreshWeights(w,t=regParam/nWeights) )
+
+      running_loss += loss.data[0]
+      if i % 1000 == 999:    # print every 1000 mini-batches
+        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
+        running_loss = 0.0
+
+
 def trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params ):
   nEpochs = params.nEpochs
   regParam = params.regParam_normL1
@@ -272,10 +313,14 @@ def trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params ):
   lastT = 1
   optimizer = optim.SGD( net.parameters(), lr=lastT )
 
+  k = 0
+  #costs = list( nEpochs * len(trainloader) )
+  costs = [None] * (nEpochs * len(trainloader))
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     running_loss = 0.0
     for i, data in enumerate( trainloader, 0 ):
+      k += 1
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
 
@@ -284,7 +329,7 @@ def trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params ):
       preLoss = criterion( preOutputs, labels )
       preLoss.backward()
 
-      preParams = net.state_dict()
+      preParams = {k:v.clone() for k,v in net.state_dict().items()}
       t = s * lastT
       while True:
         #print( "t: " + str(t) )
@@ -299,6 +344,9 @@ def trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params ):
         postParams = net.state_dict()
         postOutputs = net(inputs)
         postLoss = criterion( postOutputs, labels )
+
+        print(k)
+        costs[k] = postLoss
 
         normL2Loss = 0
         dpLoss = 0
@@ -320,6 +368,10 @@ def trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params ):
       if i % 1000 == 999:    # print every 1000 mini-batches
         print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
         running_loss = 0.0
+
+  plt.plot( costs )
+  plt.show()
+  return (x, costs)
 
 
 def trainWithStochSubGradDescent( net, criterion, params ):
@@ -392,6 +444,43 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params ):
         running_loss = 0.0
 
 
+def trainWithStochSubGradDescent_regL21Norm( net, criterion, params ):
+  nEpochs = params.nEpochs
+  learningRate = params.learningRate
+  regParam = params.regParam_normL21
+
+  nWeights = findNumWeights( net )
+
+  #optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=0.9 )
+  optimizer = optim.Adam( net.parameters(), lr=learningRate )
+
+  for epoch in range( nEpochs ):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      optimizer.zero_grad()
+
+      outputs = net(inputs)
+
+      mainLoss = criterion( outputs, labels )
+
+      L21Loss = Variable( torch.FloatTensor(1), requires_grad=True)
+      for W in net.parameters():
+        L21Loss = L21Loss + W.norm(2)
+      loss = mainLoss + torch.mul( L21Loss, regParam/nWeights )
+
+      loss.backward()
+      optimizer.step()
+
+      running_loss += loss.data[0]
+      if i % 1000 == 999:    # print every 1000 mini-batches
+        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
+        running_loss = 0.0
+
+
 
 ### Object definitions ###
 
@@ -431,9 +520,11 @@ class Net(nn.Module):
 # Parameters for this code
 class Params:
   datacase = 0
-  learningRate = 0.001
-  nEpochs = 2 
+  #learningRate = 0.001
+  learningRate = 0.01
+  nEpochs = 1
   regParam_normL1 = 0.01
+  regParam_normL21 = 0.01
   seed = 1
   s = 1.25  # Step size scaling parameter (must be greater than 1)
   r = 0.9  # Backtracking line search parameter (must be between 0 and 1)
@@ -465,7 +556,10 @@ if __name__ == '__main__':
   # Test to make sure that soft thresholding woks.
   #net.apply( lambda w: softThreshWeights(w,t=1) )  #Applies soft threshold to all weights
   
-  
+  # Test to make sure that sum of soft thresholding woks.
+  #net.apply( lambda w: sumOfSoftThreshWeights(w,t=1) )  #Applies soft threshold to all weights
+ 
+
   #list(net.parameters())  # lists the parameter (or weight) values
   #list(net.conv1.parameters())  # lists the parameters of the conv1 layer
   #list(net.conv1.parameters())[0]  # shows the parameters of the conv1 layer
@@ -476,8 +570,10 @@ if __name__ == '__main__':
 
   #trainWithStochSubGradDescent( net, criterion, params )
   #trainWithStochSubGradDescent_regL1Norm( net, criterion, params )
-  trainWithStochProxGradDescent_regL1Norm( net, criterion, params )
-  #trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params )  # Doesn't work
+  #trainWithStochSubGradDescent_regL21Norm( net, criterion, params )
+  #trainWithStochProxGradDescent_regL1Norm( net, criterion, params )
+  trainWithStochProxGradDescent_regL21Norm( net, criterion, params )
+  #(params,costs) = trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params )  # Doesn't work
   #trainWithStochFISTA_regL1Norm( net, criterion, params )
   #trainWithStochFISTAwLS_regL1Norm( net, criterion, params )
 
