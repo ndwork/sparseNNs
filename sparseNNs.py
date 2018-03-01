@@ -3,6 +3,7 @@
 import math
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 # Import torch and torchvision packages
 import torch
@@ -57,7 +58,8 @@ def loadData( datacase=0 ):
 
   if datacase == 0:
     dataDir = '/Volumes/NDWORK128GB/cs230Data/cifar10'
-    #dataDir = '/Volumes/Seagate2TB/Data/cifar10'
+    if not os.path.isdir(dataDir):
+      dataDir = '/Volumes/Seagate2TB/Data/cifar10'
 
     transform = transforms.Compose( [transforms.ToTensor(), 
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -153,6 +155,56 @@ def softThreshWeights(m,t):
   # Apply a soft threshold with parameter t to the weights of a nn.Module object
   if hasattr(m, 'weight'):
     m.weight.data = torch.sign(m.weight.data) * torch.clamp( torch.abs(m.weight.data) - t, min=0 )
+
+
+def trainWithProxGradDescent_regL1Norm( net, criterion, params ):
+  nEpochs = params.nEpochs
+  learningRate = params.learningRate
+  regParam = params.regParam_normL1
+
+  nParameters = findNumParameters( net )
+
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+
+  k = 0
+  costs = [None] * nEpochs
+  for epoch in range(nEpochs):  # loop over the entire dataset
+
+    # Calculate the gradient
+    optimizer.zero_grad()
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      outputs = net(inputs)
+      loss = criterion(outputs, labels)
+      loss.backward()
+
+    # Average summed values for gradient
+    for paramName, paramValue in net.named_parameters():
+      if hasattr( paramValue, 'grad' ):
+        thisGrad = multi_getattr( net, paramName+'.grad' )
+        multi_setattr( net, paramName+'.grad', thisGrad/len(trainloader) )
+
+    # Perform a gradient descent update
+    optimizer.step()
+
+    # Perform a proximal operator update
+    net.apply( lambda w: softThreshWeights(w,t=regParam/nParameters) )
+
+    # Determine the current objective function's value
+    mainLoss = criterion(outputs, labels)
+    regLoss = 0
+    for W in net.parameters():
+      regLoss = regLoss + W.norm(1)
+    loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+    costs[k] = loss.data[0]
+
+    print( '[%d,%10d] cost: %.3f' % (epoch+1, i+1, costs[k] ) )
+
+    k += 1
+
+  return costs
 
 
 def trainWithStochFISTA_regL1Norm( net, criterion, params ):
@@ -698,8 +750,9 @@ if __name__ == '__main__':
   #trainWithStochSubGradDescent( net, criterion, params )
 
   # reg L1 Norm
+  costs = trainWithProxGradDescent_regL1Norm( net, criterion, params )
   #costs = trainWithStochSubGradDescent_regL1Norm( net, criterion, params )
-  costs = trainWithStochProxGradDescent_regL1Norm( net, criterion, params )
+  #costs = trainWithStochProxGradDescent_regL1Norm( net, criterion, params )
   #costs = trainWithStochFISTA_regL1Norm( net, criterion, params )
   #costs = trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params )
 
