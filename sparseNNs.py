@@ -1,5 +1,6 @@
 
 # Import standard Python packages
+import math
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -11,6 +12,7 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import copy
 
 import torchvision
 import torchvision.transforms as transforms
@@ -38,13 +40,11 @@ def crossEntropyLoss( outputs, labels ):
   return -torch.sum(outputs[range(num_examples), labels])/num_examples
 
 
-def findNumWeights( net ):
-  nWeights = 0
-  nConvWeights = 0
-  nLinearWeights = 0
-  for w in net.parameters():
-    nWeights += np.prod(list(w.size()))
-  return nWeights
+def findNumParameters( net ):
+  nParameters = 0
+  for p in net.parameters():
+    nParameters += np.prod( list(p.size()) )
+  return nParameters
 
 
 def imshow(img):  # function to show an image
@@ -57,6 +57,7 @@ def loadData( datacase=0 ):
 
   if datacase == 0:
     dataDir = '/Volumes/NDWORK128GB/cs230Data/cifar10'
+    #dataDir = '/Volumes/Seagate2TB/Data/cifar10'
 
     transform = transforms.Compose( [transforms.ToTensor(), 
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -75,9 +76,77 @@ def loadData( datacase=0 ):
     print( 'Error: incorrect datase entered' )
 
 
+def multi_getattr(obj, attr, default = None):
+  """
+  Get a named attribute from an object; multi_getattr(x, 'a.b.c.d') is
+  equivalent to x.a.b.c.d. When a default argument is given, it is
+  returned when any attribute in the chain doesn't exist; without
+  it, an exception is raised when a missing attribute is encountered.
+
+  """
+  attributes = attr.split(".")
+  for i in attributes:
+    try:
+      obj = getattr(obj, i)
+    except AttributeError:
+      if default:
+        return default
+      else:
+        raise
+  return obj
+
+
+def multi_setattr(obj, attr, value, default = None):
+  """
+  Get a named attribute from an object; multi_getattr(x, 'a.b.c.d') is
+  equivalent to x.a.b.c.d. When a default argument is given, it is
+  returned when any attribute in the chain doesn't exist; without
+  it, an exception is raised when a missing attribute is encountered.
+
+  """
+  attributes = attr.split(".")
+  for i in attributes:
+    try:
+      if i == attributes[-1]:
+        setattr(obj, i, value)
+      else:
+        obj = getattr(obj, i)
+
+    except AttributeError:
+      if default:
+        return default
+      else:
+        raise
+
+
 def printLayerNames(net):
   for (name,layer) in net._modules.items():
     print(name)  # prints the names of all the parameters
+
+
+def proxL2L1(m,t):
+  if hasattr(m, 'weight'):
+    normData = np.sqrt( torch.sum( torch.mul( m.weight.data, m.weight.data ) ) )
+    if normData > t:
+      m.weight.data = m.weight.data - torch.mul( m.weight.data, t/normData )
+    else:
+      m.weight.data[:] = 0
+
+
+def proxL2Lhalf(m,t):
+  if hasattr( m, 'weight' ):
+    normWeights = np.sqrt( torch.sum( torch.mul( m.weight.data, m.weight.data ) ) )
+    if normWeights == 0:
+      m.weight.data[:] = 0
+    else :
+      alpha = t / np.power( normWeights, 1.5 )
+      if alpha < 2*np.sqrt(6)/9:
+        s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
+        m.weight.data = (s*s) * m.weight.data
+      else:
+        m.weight.data[:] = 0
+
+    normWeights = np.sqrt(torch.sum(torch.mul(m.weight.data, m.weight.data)))
 
 
 def softThreshWeights(m,t):
@@ -86,48 +155,46 @@ def softThreshWeights(m,t):
     m.weight.data = torch.sign(m.weight.data) * torch.clamp( torch.abs(m.weight.data) - t, min=0 )
 
 
-def sumOfSoftThreshWeights(m,t):
-  # Apply a soft threshold with parameter t to the weights of a nn.Module object
-  if hasattr(m, 'weight'):
-    normData = np.sqrt( torch.sum( torch.mul( m.weight.data, m.weight.data ) ) )
-    if normData > t:
-      m.weight.data = m.weight.data - torch.mul( m.weight.data, t/normData )
-    else:
-      m.weight.data = 0
-
-
 def trainWithStochFISTA_regL1Norm( net, criterion, params ):
   nEpochs = params.nEpochs
   learningRate = params.learningRate
   regParam = params.regParam_normL1
 
-  nWeights = findNumWeights( net )
+  nParameters = findNumParameters( net )
 
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
 
   k = 0
+  costs = [None] * ( nEpochs * len(trainloader) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     running_loss = 0.0
     for i, data in enumerate( trainloader, 0 ):
-      k += 1
-
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
 
-      lastParams = net.state_dict()
+      lastParams = {k:v.clone() for k,v in net.state_dict().items()}
       optimizer.zero_grad()
 
+      # Perform a gradient update
       outputs = net(inputs)
       loss = criterion(outputs, labels)
       loss.backward()
       optimizer.step()
 
       # Apply soft threshold to all weights
-      net.apply( lambda w: softThreshWeights( w, t=regParam/nWeights ) )
+      net.apply( lambda w: softThreshWeights( w, t=regParam/nParameters ) )
+
+      # determine the cost for the current parameters
+      mainLoss = criterion( outputs, labels )
+      regLoss = 0
+      for W in net.parameters():
+        regLoss = regLoss + W.norm(1)
+      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      costs[k] = loss.data[0]
 
       # Perform the acceleration update
-      theseParams = net.state_dict()
+      theseParams = {k:v.clone() for k,v in net.state_dict().items()}
       for paramName, paramValue in theseParams.items():
         paramValueArray = paramValue.numpy()
         lastParamValue = lastParams[ paramName ]
@@ -142,100 +209,9 @@ def trainWithStochFISTA_regL1Norm( net, criterion, params ):
         print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
         running_loss = 0.0
 
-
-def trainWithStochFISTAwLS_regL1Norm( net, criterion, params ):
-  nEpochs = params.nEpochs
-  learningRate = params.learningRate
-  regParam = params.regParam_normL1
-  tHat = 1
-  s = params.s
-  r = params.r
-
-  nWeights = findNumWeights( net )
-
-  optimizer = optim.SGD( net.parameters(), lr=learningRate )
-
-  k = 0
-  t = tHat
-  theta = 1
-  x = net.state_dict()
-  v = {a:b.clone() for a,b in net.state_dict().items()}
-  y = {a:b.clone() for a,b in net.state_dict().items()}
-  for epoch in range(nEpochs):  # loop over the dataset multiple times
-
-    running_loss = 0.0
-    for i, data in enumerate( trainloader, 0 ):
       k += 1
 
-      lastX = x
-      lastT = t
-      t = s * lastT
-      lastTheta = theta
-
-      while True:
-
-        if k==1:
-          theta=1
-        else:
-          a = lastT
-          b = t*lastTheta*lastTheta
-          c = -b;
-          theta = ( -b + np.sqrt( b*b - 4*a*c ) ) / ( 2*a )
-
-        for xLayerName, xLayerValue in x.items():
-          xLayerValueArray = xLayerValue.numpy()
-          vLayerValue = v[ xLayerName ]
-          vLayerValueArray = vLayerValue.numpy()
-          yArray = (1-theta)*xLayerValueArray + theta*vLayerValueArray
-          y[ xLayerName ] = torch.from_numpy( yArray )
-
-        net.load_state_dict( y )
-        
-        inputs, labels = data
-        inputs, labels = Variable( inputs ), Variable( labels )
-        optimizer.zero_grad()
-        yOutputs = net(inputs)
-        yLoss = criterion( yOutputs, labels )
-        yLoss.backward()
-        for param_group in optimizer.param_groups:
-          param_group['lr'] = t
-        optimizer.step()
-
-        # Apply soft threshold to all weights
-        net.apply( lambda w: softThreshWeights( w, t=t*regParam/nWeights ) )
-        x = net.state_dict()
-
-        xOutputs = net(inputs)
-        xLoss = criterion( xOutputs, labels )
-
-        normL2Loss = 0
-        dpLoss = 0
-        for paramName, paramValue in net.named_parameters():
-          thisGrad = paramValue.grad
-          thisGradArray = (thisGrad.data).numpy()
-          xValueArray = ( x[ paramName ] ).numpy()
-          yValueArray = ( y[ paramName ] ).numpy()
-          xyDiff = xValueArray - yValueArray
-          dpLoss += np.sum( thisGradArray * xyDiff )
-          normL2Loss += np.sum( np.square( xyDiff ) )
-        normL2Loss = normL2Loss / (2*t)
-
-        if xLoss.data[0] <= yLoss.data[0] + dpLoss + normL2Loss:
-          break
-        t *= r
-
-      for xLayerName, xLayerValue in x.items():
-        xLayerValueArray = xLayerValue.numpy()
-        lastXLayerValue = lastX[ xLayerName ]
-        lastXLayerValueArray = lastXLayerValue.numpy()
-        vLayerValueArray = lastXLayerValueArray + \
-          (1/theta) * ( xLayerValueArray - lastXLayerValueArray)
-        vLayerValue = torch.from_numpy( vLayerValueArray )
-
-      running_loss += xLoss.data[0]
-      if i % 1000 == 999:    # print every 1000 mini-batches
-        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
-        running_loss = 0.0
+  return costs
 
 
 def trainWithStochProxGradDescent_regL1Norm( net, criterion, params ):
@@ -243,31 +219,45 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params ):
   learningRate = params.learningRate
   regParam = params.regParam_normL1
 
-  nWeights = findNumWeights( net )
+  nParameters = findNumParameters( net )
 
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
 
+  k = 0
+  costs = [None] * ( nEpochs * len(trainloader) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     running_loss = 0.0
     for i, data in enumerate( trainloader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
-
       optimizer.zero_grad()
 
+      # Perform a gradient update
       outputs = net(inputs)
       loss = criterion(outputs, labels)
       loss.backward()
       optimizer.step()
 
-      # Apply soft threshold to all weights
-      net.apply( lambda w: softThreshWeights(w,t=regParam/nWeights) )
+      # Perform a proximal operator update
+      net.apply( lambda w: softThreshWeights(w,t=regParam/nParameters) )
+
+      # Determine the current objective function's value
+      mainLoss = criterion(outputs, labels)
+      regLoss = 0
+      for W in net.parameters():
+        regLoss = regLoss + W.norm(1)
+      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      costs[k] = loss.data[0]
 
       running_loss += loss.data[0]
       if i % 1000 == 999:    # print every 1000 mini-batches
         print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
         running_loss = 0.0
+
+      k += 1
+
+  return costs
 
 
 def trainWithStochProxGradDescent_regL21Norm( net, criterion, params ):
@@ -275,31 +265,92 @@ def trainWithStochProxGradDescent_regL21Norm( net, criterion, params ):
   learningRate = params.learningRate
   regParam = params.regParam_normL1
 
-  nWeights = findNumWeights( net )
+  nParameters = findNumParameters( net )
 
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
 
+  k = 0
+  costs = [None] * ( nEpochs * len(trainloader) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     running_loss = 0.0
     for i, data in enumerate( trainloader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
-
       optimizer.zero_grad()
 
+      # Perform a gradient descent update
       outputs = net(inputs)
       loss = criterion(outputs, labels)
       loss.backward()
+      costs[k] = loss.data[0]
       optimizer.step()
 
-      # Apply soft threshold to all weights
-      net.apply( lambda w: sumOfSoftThreshWeights(w,t=regParam/nWeights) )
+      # Perform a proximal operator update
+      net.apply( lambda w: proxL2L1(w,t=regParam/nParameters) )
+
+      # Determine the current objective function's value
+      mainLoss = criterion(outputs, labels)
+      regLoss = 0
+      for W in net.parameters():
+        regLoss = regLoss + torch.sqrt( W.norm(2) )
+      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      costs[k] = loss.data[0]
 
       running_loss += loss.data[0]
       if i % 1000 == 999:    # print every 1000 mini-batches
         print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
         running_loss = 0.0
+
+      k += 1
+
+  return costs
+
+
+def trainWithStochProxGradDescent_regL2LhalfNorm( net, criterion, params ):
+  nEpochs = params.nEpochs
+  learningRate = params.learningRate
+  regParam = params.regParam_normL2Lhalf
+
+  nParameters = findNumParameters( net )
+
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+
+  k = 0
+  costs = [None] * ( nEpochs * len(trainloader) )
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+      optimizer.zero_grad()
+
+      # Perform a gradient descent update
+      outputs = net(inputs)
+      loss = criterion(outputs, labels)
+      loss.backward()
+      optimizer.step()
+
+      # Perform a proximal update
+      net.apply( lambda w: proxL2Lhalf(w,t=regParam/nParameters) )
+
+      # Determine the current objective function's value
+      mainLoss = criterion(outputs, labels)
+      regLoss = 0
+      for W in net.parameters():
+        regLoss = regLoss + torch.sqrt( W.norm(2) )
+      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      costs[k] = loss.data[0]
+
+      running_loss += loss.data[0]
+      if i % 1000 == 999:    # print every 1000 mini-batches
+        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
+        running_loss = 0.0
+
+      k += 1
+
+  return costs
 
 
 def trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params ):
@@ -308,55 +359,64 @@ def trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params ):
   s = params.s
   r = params.r
 
-  nWeights = findNumWeights( net )
+  nParameters = findNumParameters( net )
 
   lastT = 1
   optimizer = optim.SGD( net.parameters(), lr=lastT )
 
   k = 0
-  #costs = list( nEpochs * len(trainloader) )
   costs = [None] * (nEpochs * len(trainloader))
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     running_loss = 0.0
     for i, data in enumerate( trainloader, 0 ):
-      k += 1
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
-
       optimizer.zero_grad()
+
+      # Evaluate the unregularized loss function and calculate the gradient before the update
       preOutputs = net( inputs )
       preLoss = criterion( preOutputs, labels )
       preLoss.backward()
 
-      preParams = {k:v.clone() for k,v in net.state_dict().items()}
+      # Store the result
+      preNet = copy.deepcopy( net )
+      for paramName, paramValue in net.named_parameters():
+        if hasattr( paramValue, 'grad' ):
+          thisGrad = multi_getattr( net, paramName+'.grad' )
+          multi_setattr( preNet, paramName+'.grad', thisGrad )
+
       t = s * lastT
       while True:
-        #print( "t: " + str(t) )
+        # Copy the network's parameters and gradient value
+        net = copy.deepcopy( preNet )
+        for paramName, preParamValue in preNet.named_parameters():
+          if hasattr( preParamValue, 'grad' ):
+            thisGrad = multi_getattr( preNet, paramName+'.grad' )
+            multi_setattr( net, paramName+'.grad', thisGrad )
 
-        net.load_state_dict( preParams )
+        # Perform a gradient descent update
         for param_group in optimizer.param_groups:
           param_group['lr'] = t
         optimizer.step()
 
-        # Apply soft threshold to all weights
-        net.apply( lambda w: softThreshWeights( w, t=t*regParam/nWeights ) )
-        postParams = net.state_dict()
-        postOutputs = net(inputs)
+        # Perform a proximal operator update
+        net.apply( lambda w: softThreshWeights( w, t=t*regParam/nParameters ) )
+
+        # Evaluate the unregularized loss function after the update
+        postOutputs = net( inputs )
         postLoss = criterion( postOutputs, labels )
 
-        print(k)
-        costs[k] = postLoss
-
+        # Determine if the line search has been satisfied
         normL2Loss = 0
         dpLoss = 0
         for paramName, paramValue in net.named_parameters():
-          thisGradArray = (paramValue.grad.data).numpy()
-          preValueArray = ( preParams[ paramName ] ).numpy()
-          postValueArray = ( postParams[ paramName ] ).numpy()
-          paramDiff = postValueArray - preValueArray
-          dpLoss += np.sum( thisGradArray * paramDiff )
-          normL2Loss += np.sum( np.square( paramDiff ) )
+          preGradArray = multi_getattr( preNet, paramName+'.grad.data' ).numpy()
+          preValueArray = multi_getattr( preNet, paramName+'.data' ).numpy()
+          postValueArray = paramValue.data.numpy()
+          diffValueArray = postValueArray - preValueArray
+          dpLoss += np.sum( preGradArray * diffValueArray )
+          normL2Loss += np.sum( np.square( diffValueArray ) )
         normL2Loss = normL2Loss / (2*t)
 
         if postLoss.data[0] <= preLoss.data[0] + dpLoss + normL2Loss:
@@ -364,14 +424,24 @@ def trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params ):
           break
         t *= r
 
+      mainLoss = criterion(outputs, labels)
+      regLoss = 0
+      for W in net.parameters():
+        regLoss = regLoss + W.norm(1)
+      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      costs[k] = loss.data[0]
+      #costs[k] = preLoss.data[0]
+      #for paramName, paramValue in net.named_parameters():
+      #  costs[k] += torch.sum( torch.abs( paramValue ) ).data[0]
+
       running_loss += postLoss.data[0]
       if i % 1000 == 999:    # print every 1000 mini-batches
         print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
         running_loss = 0.0
 
-  plt.plot( costs )
-  plt.show()
-  return (x, costs)
+      k += 1
+
+  return costs
 
 
 def trainWithStochSubGradDescent( net, criterion, params ):
@@ -381,6 +451,8 @@ def trainWithStochSubGradDescent( net, criterion, params ):
   #optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=0.9 )
   optimizer = optim.Adam( net.parameters(), lr=learningRate )
 
+  k = 0
+  costs = [None] * ( nEpochs * len(trainloader) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     running_loss = 0.0
@@ -397,6 +469,7 @@ def trainWithStochSubGradDescent( net, criterion, params ):
       # forward + backward + optimize
       outputs = net(inputs)
       loss = criterion(outputs, labels)
+      costs[k] = loss.data[0]
       loss.backward()
       optimizer.step()
 
@@ -406,17 +479,23 @@ def trainWithStochSubGradDescent( net, criterion, params ):
         print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
         running_loss = 0.0
 
+      k += 1
+
+  return costs
+
 
 def trainWithStochSubGradDescent_regL1Norm( net, criterion, params ):
   nEpochs = params.nEpochs
   learningRate = params.learningRate
   regParam = params.regParam_normL1
 
-  nWeights = findNumWeights( net )
+  nParameters = findNumParameters( net )
 
   #optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=0.9 )
   optimizer = optim.Adam( net.parameters(), lr=learningRate )
 
+  k = 0
+  costs = [None] * ( nEpochs * len(trainloader) )
   for epoch in range( nEpochs ):  # loop over the dataset multiple times
 
     running_loss = 0.0
@@ -430,10 +509,11 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params ):
 
       mainLoss = criterion( outputs, labels )
 
-      lossL1 = Variable( torch.FloatTensor(1), requires_grad=True)
+      regLoss = Variable( torch.FloatTensor(1), requires_grad=True)
       for W in net.parameters():
-        lossL1 = lossL1 + W.norm(1)
-      loss = mainLoss + torch.mul( lossL1, regParam/nWeights )
+        regLoss = regLoss + W.norm(1)
+      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      costs[k] = loss.data[0]
 
       loss.backward()
       optimizer.step()
@@ -442,6 +522,10 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params ):
       if i % 1000 == 999:    # print every 1000 mini-batches
         print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
         running_loss = 0.0
+
+      k += 1
+
+  return costs
 
 
 def trainWithStochSubGradDescent_regL21Norm( net, criterion, params ):
@@ -449,11 +533,13 @@ def trainWithStochSubGradDescent_regL21Norm( net, criterion, params ):
   learningRate = params.learningRate
   regParam = params.regParam_normL21
 
-  nWeights = findNumWeights( net )
+  nParameters = findNumParameters( net )
 
   #optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=0.9 )
   optimizer = optim.Adam( net.parameters(), lr=learningRate )
 
+  k = 0
+  costs = [None] * ( nEpochs * len(trainloader) )
   for epoch in range( nEpochs ):  # loop over the dataset multiple times
 
     running_loss = 0.0
@@ -467,10 +553,11 @@ def trainWithStochSubGradDescent_regL21Norm( net, criterion, params ):
 
       mainLoss = criterion( outputs, labels )
 
-      L21Loss = Variable( torch.FloatTensor(1), requires_grad=True)
+      regLoss = Variable( torch.FloatTensor(1), requires_grad=True )
       for W in net.parameters():
-        L21Loss = L21Loss + W.norm(2)
-      loss = mainLoss + torch.mul( L21Loss, regParam/nWeights )
+        regLoss = regLoss + W.norm(2)
+      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      costs[k] = loss.data[0]
 
       loss.backward()
       optimizer.step()
@@ -479,6 +566,53 @@ def trainWithStochSubGradDescent_regL21Norm( net, criterion, params ):
       if i % 1000 == 999:    # print every 1000 mini-batches
         print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
         running_loss = 0.0
+
+      k += 1
+
+  return costs
+
+
+def trainWithStochSubGradDescent_regL2LhalfNorm( net, criterion, params ):
+  nEpochs = params.nEpochs
+  learningRate = params.learningRate
+  regParam = params.regParam_normL2Lhalf
+
+  nParameters = findNumParameters( net )
+
+  optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=0.9 )
+  #optimizer = optim.Adam( net.parameters(), lr=learningRate )
+
+  k = 0
+  costs = [None] * ( nEpochs * len(trainloader) )
+  for epoch in range( nEpochs ):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+      optimizer.zero_grad()
+
+      outputs = net(inputs)
+
+      mainLoss = criterion( outputs, labels )
+
+      regLoss = Variable( torch.FloatTensor(1), requires_grad=True )
+      for W in net.parameters():
+        regLoss = regLoss + torch.sqrt( W.norm(2) )
+      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      costs[k] = loss.data[0]
+
+      loss.backward()
+      optimizer.step()
+
+      running_loss += loss.data[0]
+      if i % 1000 == 999:    # print every 1000 mini-batches
+        print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, running_loss / 1000))
+        running_loss = 0.0
+
+      k += 1
+
+  return costs
 
 
 
@@ -520,11 +654,11 @@ class Net(nn.Module):
 # Parameters for this code
 class Params:
   datacase = 0
-  #learningRate = 0.001
   learningRate = 0.01
-  nEpochs = 1
+  nEpochs = 300
   regParam_normL1 = 0.01
   regParam_normL21 = 0.01
+  regParam_normL2Lhalf = 0.01
   seed = 1
   s = 1.25  # Step size scaling parameter (must be greater than 1)
   r = 0.9  # Backtracking line search parameter (must be between 0 and 1)
@@ -536,46 +670,50 @@ if __name__ == '__main__':
 
   (trainset, trainloader, testset, testloader, classes) = loadData( params.datacase )
 
-  # get some random training images
-  dataiter = iter( trainloader )
-  images, labels = dataiter.next()
-
-  # show images
-  #imshow( torchvision.utils.make_grid(images) )
-  # print labels
-  #print(' '.join('%5s' % classes[labels[j]] for j in range(4)))
-
-
   net = Net()  # this is my model; it has parameters
-  printLayerNames( net )
 
 
-  # Test to make sure that we can alter the weights of the neural network
+
+  # get some random training images
+  #dataiter = iter( trainloader )
+  #images, labels = dataiter.next()
+  #imshow( torchvision.utils.make_grid(images) )  # show images
+  #print(' '.join('%5s' % classes[labels[j]] for j in range(4)))  # print labels
+
+  # Tests
   #net.apply(addOneToAllWeights)  # adds one to all of the weights in the model
-  
-  # Test to make sure that soft thresholding woks.
   #net.apply( lambda w: softThreshWeights(w,t=1) )  #Applies soft threshold to all weights
-  
-  # Test to make sure that sum of soft thresholding woks.
-  #net.apply( lambda w: sumOfSoftThreshWeights(w,t=1) )  #Applies soft threshold to all weights
- 
+  #net.apply( lambda w: proxL2L1(w,t=1) )  #Applies soft threshold to all weights
 
   #list(net.parameters())  # lists the parameter (or weight) values
   #list(net.conv1.parameters())  # lists the parameters of the conv1 layer
   #list(net.conv1.parameters())[0]  # shows the parameters of the conv1 layer
+  #printLayerNames( net )  # prints the layer names
 
 
   #criterion = nn.CrossEntropyLoss()  # Softmax is embedded in loss function
   criterion = crossEntropyLoss  # Explicit definiton of cross-entropy loss (without softmax)
 
+  # noRegularization
   #trainWithStochSubGradDescent( net, criterion, params )
-  #trainWithStochSubGradDescent_regL1Norm( net, criterion, params )
-  #trainWithStochSubGradDescent_regL21Norm( net, criterion, params )
-  #trainWithStochProxGradDescent_regL1Norm( net, criterion, params )
-  trainWithStochProxGradDescent_regL21Norm( net, criterion, params )
-  #(params,costs) = trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params )  # Doesn't work
-  #trainWithStochFISTA_regL1Norm( net, criterion, params )
-  #trainWithStochFISTAwLS_regL1Norm( net, criterion, params )
+
+  # reg L1 Norm
+  #costs = trainWithStochSubGradDescent_regL1Norm( net, criterion, params )
+  costs = trainWithStochProxGradDescent_regL1Norm( net, criterion, params )
+  #costs = trainWithStochFISTA_regL1Norm( net, criterion, params )
+  #costs = trainWithStochProxGradDescentwLS_regL1Norm( net, criterion, params )
+
+  # reg L21 Norm
+  #costs = trainWithStochSubGradDescent_regL21Norm( net, criterion, params )
+  #costs = trainWithStochProxGradDescent_regL21Norm( net, criterion, params )
+
+  # reg L2LhalfNorm
+  #costs = trainWithStochSubGradDescent_regL2LhalfNorm( net, criterion, params )
+  #costs = trainWithStochProxGradDescent_regL2LhalfNorm( net, criterion, params )
+
+
+  plt.plot( costs )
+  plt.show()
 
   dataiter = iter(testloader)
   images, labels = dataiter.next()
