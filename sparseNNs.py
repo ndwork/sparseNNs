@@ -221,6 +221,57 @@ def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
   return ( costs, sparses )
 
 
+def trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate ):
+  nEpochs = params.nEpochs
+  nBatches = params.nBatches
+  printEvery = params.printEvery
+  regParam = params.regParam_normL1
+
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+  nParameters = findNumParameters( net )
+
+  k = 0
+  costs = [None] * nEpochs
+  groupSparses = [None] * nEpochs
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    optimizer.zero_grad()
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      # Calculate the gradient
+      outputs = net( inputs )
+      thisLoss = criterion( outputs, labels )
+      thisLoss.backward()
+
+      if i >= nBatches-1:
+        break
+
+    # Perform a gradient descent update
+    optimizer.step()
+
+    # Perform a proximal operator update
+    net.apply( lambda w: proxL2L1( w, t=learningRate*regParam/nParameters ) )
+
+    # Determine the current objective function's value
+    mainLoss = criterion( outputs, labels )
+    regLoss = 0
+    for W in net.parameters():
+      regLoss = regLoss + W.norm(2)
+    regLoss = torch.mul( regLoss, regParam/nParameters )
+    loss = mainLoss + regLoss
+    costs[epoch] = loss.data[0]
+    groupSparses[epoch] = findNumDeadNeurons( net )
+
+    if epoch % printEvery == printEvery-1:
+      print( '[%d] cost: %.3f' % (epoch+1, costs[k] ) )
+
+    k += 1
+
+  return ( costs, groupSparses )
+
+
 def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   nBatches = params.nBatches
@@ -269,7 +320,58 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRat
       if i >= nBatches-1:
         break
 
-  return costs
+  return ( costs, sparses )
+
+
+def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate ):
+  nEpochs = params.nEpochs
+  nBatches = params.nBatches
+  regParam = params.regParam_normL1
+
+  nParameters = findNumParameters( net )
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+
+  k = 0
+  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  groupSparses = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      # Calculate the gradient using just a minibatch
+      outputs = net(inputs)
+      loss = criterion(outputs, labels)
+      optimizer.zero_grad()
+      loss.backward()
+      costs[k] = loss.data[0]
+
+      # Perform a gradient descent update
+      optimizer.step()
+
+      # Perform a proximal operator update
+      net.apply( lambda w: proxL2L1( w, t=learningRate*regParam/nParameters ) )
+
+      # Determine the current objective function's value
+      mainLoss = criterion( outputs, labels )
+      regLoss = 0
+      for W in net.parameters():
+        regLoss = regLoss + W.norm(2)
+      regLoss = torch.mul( regLoss, regParam/nParameters )
+      loss = mainLoss + regLoss
+      costs[k] = loss.data[0]
+      groupSparses[k] = findNumDeadNeurons( net )
+
+
+      if k % params.printEvery == params.printEvery-1:
+        print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
+      k += 1
+
+      if i >= nBatches-1:
+        break
+
+  return ( costs, groupSparses )
 
 
 def trainWithStochSubGradDescent( net, criterion, params, learningRate ):
@@ -353,12 +455,12 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate
   return (costs,sparses)
 
 
-def trainWithStochSubGradDescent_regL21Norm( net, criterion, params, learningRate ):
+def trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   momentum = params.momentum
   nBatches = params.nBatches
   printEvery = params.printEvery
-  regParam = params.regParam_normL21
+  regParam = params.regParam_normL2L1
 
   optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=momentum )
   #optimizer = optim.Adam( net.parameters(), lr=learningRate )
@@ -577,15 +679,15 @@ class Net(nn.Module):
 
 # Parameters for this code
 class Params:
-  batchSize = 500
+  batchSize = 1000
   datacase = 0
   momentum = 0.0
-  nBatches = 1
+  nBatches = 100000000
   nEpochs = 1000
   printEvery = 1
   regParam_normL1 = 0.1
-  regParam_normL21 = 0.1
-  regParam_normL2Lhalf = 0.01
+  regParam_normL2L1 = 0.1
+  regParam_normL2Lhalf = 0.1
   seed = 1
   shuffle = True  # Shuffle the data in each minibatch
   alpha = 0.8
@@ -627,15 +729,17 @@ if __name__ == '__main__':
   # noRegularization
   #costs = trainWithSubGradDescent( net, criterion, params, learningRate=1.0 )
   #costs = trainWithSubGradDescentLS( net, criterion, params, learningRate=0.1 )
-  #costs = trainWithStochSubGradDescent( net, criterion, params, learningRate=1 )
+  #costs = trainWithStochSubGradDescent( net, criterion, params, learningRate=1.0 )
 
   # L1 norm regularization
   #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
-  (costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
+  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
   #(costs, sparses) = trainWithProxGradDescent_regL1Norm(net, criterion, params, learningRate=1.0 )
 
-  # L21 norm regularization
-  (costs,groupSparses) = trainWithStochSubGradDescent_regL21Norm( net, criterion, params, learningRate=1.0 )
+  # L2L1 norm regularization
+  #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
+  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
 
   plt.plot( costs )
   plt.show()
