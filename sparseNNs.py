@@ -42,6 +42,13 @@ def crossEntropyLoss( outputs, labels ):
   return -torch.sum(outputs[range(num_examples), labels])/num_examples
 
 
+def findNumDeadNeurons( net ):
+  nDead = 0
+  for p in net.parameters():
+    if np.max( np.absolute( p.data.numpy() ) ) <= 0:
+      nDead += 1
+  return nDead
+
 def findNumParameters( net ):
   nParameters = 0
   for p in net.parameters():
@@ -163,17 +170,67 @@ def softThreshWeights(m,t):
     m.weight.data = torch.sign(m.weight.data) * torch.clamp( torch.abs(m.weight.data) - t, min=0 )
 
 
-def trainWithStochSubGradDescent( net, criterion, params ):
+def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
-  learningRate = params.learningRate
+  nBatches = params.nBatches
+  printEvery = params.printEvery
+  regParam = params.regParam_normL1
+
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+  nParameters = findNumParameters( net )
+
+  k = 0
+  costs = [None] * nEpochs
+  sparses = [None] * nEpochs
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    optimizer.zero_grad()
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      # Calculate the gradient
+      outputs = net( inputs )
+      thisLoss = criterion( outputs, labels )
+      thisLoss.backward()
+
+      if i >= nBatches-1:
+        break
+
+    # Perform a gradient descent update
+    optimizer.step()
+
+    # Perform a proximal operator update
+    net.apply( lambda w: softThreshWeights( w, t=learningRate*regParam/nParameters ) )
+
+    # Determine the current objective function's value
+    mainLoss = criterion( outputs, labels )
+    regLoss = 0
+    for W in net.parameters():
+      regLoss = regLoss + W.norm(1)
+    regLoss = torch.mul( regLoss, regParam/nParameters )
+    loss = mainLoss + regLoss
+    costs[epoch] = loss.data[0]
+    sparses[epoch] = findNumZeroParameters( net )
+
+    if epoch % printEvery == printEvery-1:
+      print( '[%d] cost: %.3f' % (epoch+1, costs[k] ) )
+
+    k += 1
+
+  return ( costs, sparses )
+
+
+def trainWithStochSubGradDescent( net, criterion, params, learningRate ):
+  nEpochs = params.nEpochs
   momentum = params.momentum
-  nMiniBatches = params.nMiniBatches
+  nBatches = params.nBatches
 
   optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=momentum )
   #optimizer = optim.Adam( net.parameters(), lr=learningRate )
 
   k = 0
-  costs = [None] * ( nEpochs * np.min([len(trainloader),nMiniBatches]) )
+  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     for i, data in enumerate( trainloader, 0 ):
@@ -190,20 +247,19 @@ def trainWithStochSubGradDescent( net, criterion, params ):
       optimizer.step()
 
       if k % params.printEvery == params.printEvery-1:
-        print( '[%d,%d] cost: %.3f' % ( epoch+1, k+1, costs[k] ) )
+        print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
       k += 1
 
-      if i >= nMiniBatches-1:
+      if i >= nBatches-1:
         break
 
   return costs
 
 
-def trainWithStochSubGradDescent_regL1Norm( net, criterion, params ):
+def trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
-  learningRate = params.learningRate
   momentum = params.momentum
-  nMiniBatches = params.nMiniBatches
+  nBatches = params.nBatches
   printEvery = params.printEvery
   regParam = params.regParam_normL1
 
@@ -213,7 +269,8 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params ):
   nParameters = findNumParameters(net)
 
   k = 0
-  costs = [None] * ( nEpochs * np.min([len(trainloader),nMiniBatches]) )
+  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  sparses = [None] * (nEpochs * np.min([len(trainloader), nBatches]))
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     for i, data in enumerate( trainloader, 0 ):
@@ -231,6 +288,7 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params ):
       loss.backward()
 
       costs[k] = loss.data[0]
+      sparses[k] = findNumZeroParameters(net)
 
       optimizer.step()
 
@@ -238,17 +296,63 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params ):
         print( '[%d,%d] cost: %.3f' % ( epoch+1, k+1, costs[k] ) )
       k += 1
 
-      if i >= nMiniBatches-1:
+      if i >= nBatches-1:
         break
 
-  return costs
+  return (costs,sparses)
 
 
-def trainWithSubGradDescent( net, criterion, params ):
+def trainWithStochSubGradDescent_regL21Norm( net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
-  learningRate = params.learningRate
   momentum = params.momentum
-  nMiniBatches = params.nMiniBatches
+  nBatches = params.nBatches
+  printEvery = params.printEvery
+  regParam = params.regParam_normL21
+
+  optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=momentum )
+  #optimizer = optim.Adam( net.parameters(), lr=learningRate )
+
+  nParameters = findNumParameters(net)
+
+  k = 0
+  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  groupSparses = [None] * (nEpochs * np.min([len(trainloader), nBatches]))
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      # Calculate the gradient using just a minibatch
+      outputs = net(inputs)
+      mainLoss = criterion( outputs, labels )
+      regLoss = Variable( torch.FloatTensor(1), requires_grad=True )
+      for W in net.parameters():
+        regLoss = regLoss + W.norm(2)
+      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      optimizer.zero_grad()
+      loss.backward()
+
+      costs[k] = loss.data[0]
+      groupSparses[k] = findNumDeadNeurons( net )
+
+      optimizer.step()
+
+      if k % printEvery == printEvery-1:
+        print( '[%d,%d] cost: %.3f' % ( epoch+1, k+1, costs[k] ) )
+      k += 1
+
+      if i >= nBatches-1:
+        break
+
+  return ( costs, groupSparses )
+
+
+def trainWithSubGradDescent( net, criterion, params, learningRate ):
+  nEpochs = params.nEpochs
+  momentum = params.momentum
+  nBatches = params.nBatches
+  printEvery = params.printEvery
 
   optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=momentum )
   #optimizer = optim.Adam( net.parameters(), lr=learningRate )
@@ -269,19 +373,13 @@ def trainWithSubGradDescent( net, criterion, params ):
       thisLoss.backward()
       loss += thisLoss.data[0]
 
-      if i >= nMiniBatches-1:
+      if i >= nBatches-1:
         break
-
-    # Average summed values for gradient
-    for paramName, paramValue in net.named_parameters():
-      if hasattr( paramValue, 'grad' ):
-        thisGrad = multi_getattr( net, paramName+'.grad' )
-        #multi_setattr( net, paramName+'.grad', thisGrad/nMiniBatches )
 
     optimizer.step()
     costs[epoch] = loss
 
-    if epoch % 10 == 9:
+    if epoch % printEvery == printEvery-1:
       print( '[%d] cost: %.3f' % (epoch+1, costs[k] ) )
 
     k += 1
@@ -292,7 +390,7 @@ def trainWithSubGradDescent( net, criterion, params ):
 def trainWithSubGradDescentLS( net, criterion, params ):
   alpha = params.alpha
   nEpochs = params.nEpochs
-  nMiniBatches = params.nMiniBatches
+  nBatches = params.nBatches
   s = params.s
   r = params.r
 
@@ -316,7 +414,7 @@ def trainWithSubGradDescentLS( net, criterion, params ):
       tmpLoss.backward()
       preLoss += tmpLoss.data[0]
 
-      if i >= nMiniBatches-1:
+      if i >= nBatches-1:
         break
 
     costs[epoch] = preLoss
@@ -358,7 +456,7 @@ def trainWithSubGradDescentLS( net, criterion, params ):
         tmpLoss = criterion( outputs, labels )
         postLoss += tmpLoss.data[0]
 
-        if i >= nMiniBatches-1:
+        if i >= nBatches-1:
           break
 
       # Evaluate the dot product component of the line search criteria
@@ -430,13 +528,12 @@ class Net(nn.Module):
 class Params:
   batchSize = 500
   datacase = 0
-  learningRate = 0.1
   momentum = 0.0
-  nEpochs = 10
-  nMiniBatches = 100000
-  printEvery = 5
-  regParam_normL1 = 0.0
-  regParam_normL21 = 1 
+  nBatches = 1
+  nEpochs = 1000
+  printEvery = 1
+  regParam_normL1 = 0.1
+  regParam_normL21 = 0.1
   regParam_normL2Lhalf = 0.01
   seed = 1
   shuffle = True  # Shuffle the data in each minibatch
@@ -477,13 +574,16 @@ if __name__ == '__main__':
   criterion = crossEntropyLoss  # Explicit definiton of cross-entropy loss (without softmax)
 
   # noRegularization
-  #costs = trainWithSubGradDescent( net, criterion, params )
-  #costs = trainWithSubGradDescentLS( net, criterion, params )
-  costs = trainWithStochSubGradDescent( net, criterion, params )
+  #costs = trainWithSubGradDescent( net, criterion, params, learningRate=1.0 )
+  #costs = trainWithSubGradDescentLS( net, criterion, params, learningRate=0.1 )
+  #costs = trainWithStochSubGradDescent( net, criterion, params, learningRate=1 )
 
   # L1 norm regularization
-  #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( net, criterion, params )
+  #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
+  #(costs, sparses) = trainWithProxGradDescent_regL1Norm(net, criterion, params, learningRate=1.0 )
 
+  # L21 norm regularization
+  (costs,groupSparses) = trainWithStochSubGradDescent_regL21Norm( net, criterion, params, learningRate=1.0 )
 
   plt.plot( costs )
   plt.show()
