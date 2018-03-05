@@ -221,6 +221,57 @@ def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
   return ( costs, sparses )
 
 
+def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
+  nEpochs = params.nEpochs
+  nBatches = params.nBatches
+  regParam = params.regParam_normL1
+
+  nParameters = findNumParameters( net )
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+
+  k = 0
+  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  sparses = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      # Calculate the gradient using just a minibatch
+      outputs = net(inputs)
+      loss = criterion(outputs, labels)
+      optimizer.zero_grad()
+      loss.backward()
+      costs[k] = loss.data[0]
+
+      # Perform a gradient descent update
+      optimizer.step()
+
+      # Perform a proximal operator update
+      net.apply( lambda w: softThreshWeights( w, t=learningRate*regParam/nParameters ) )
+
+      # Determine the current objective function's value
+      mainLoss = criterion( outputs, labels )
+      regLoss = 0
+      for W in net.parameters():
+        regLoss = regLoss + W.norm(1)
+      regLoss = torch.mul( regLoss, regParam/nParameters )
+      loss = mainLoss + regLoss
+      costs[k] = loss.data[0]
+      sparses[k] = findNumZeroParameters( net )
+
+
+      if k % params.printEvery == params.printEvery-1:
+        print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
+      k += 1
+
+      if i >= nBatches-1:
+        break
+
+  return costs
+
+
 def trainWithStochSubGradDescent( net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   momentum = params.momentum
@@ -580,6 +631,7 @@ if __name__ == '__main__':
 
   # L1 norm regularization
   #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
+  (costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
   #(costs, sparses) = trainWithProxGradDescent_regL1Norm(net, criterion, params, learningRate=1.0 )
 
   # L21 norm regularization
