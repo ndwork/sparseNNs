@@ -164,6 +164,35 @@ def proxL2Lhalf(m,t):
     normWeights = np.sqrt(torch.sum(torch.mul(m.weight.data, m.weight.data)))
 
 
+def showTestResults( net, testloader ):
+  # Determine accuracy on test set
+  correct = 0
+  total = 0
+  for data in testloader:
+    images, labels = data
+    outputs = net(Variable(images))
+    _, predicted = torch.max(outputs.data, 1)
+    total += labels.size(0)
+    correct += (predicted == labels).sum()
+
+  print('Accuracy of the network on the 10000 test images: %d %%' % ( 100 * correct / total))
+
+  class_correct = list(0. for i in range(10))
+  class_total = list(0. for i in range(10))
+  for data in testloader:
+    images, labels = data
+    outputs = net(Variable(images))
+    _, predicted = torch.max(outputs.data, 1)
+    c = (predicted == labels).squeeze()
+    for i in range(4):
+      label = labels[i]
+      class_correct[label] += c[i]
+      class_total[label] += 1
+
+  for i in range(10):
+    print('Accuracy of %5s : %2d %%' % ( classes[i], 100 * class_correct[i] / class_total[i]))
+
+
 def softThreshWeights(m,t):
   # Apply a soft threshold with parameter t to the weights of a nn.Module object
   if hasattr(m, 'weight'):
@@ -262,6 +291,7 @@ def trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate )
     regLoss = torch.mul( regLoss, regParam/nParameters )
     loss = mainLoss + regLoss
     costs[epoch] = loss.data[0]
+
     groupSparses[epoch] = findNumDeadNeurons( net )
 
     if epoch % printEvery == printEvery-1:
@@ -341,11 +371,10 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
       inputs, labels = Variable(inputs), Variable(labels)
 
       # Calculate the gradient using just a minibatch
-      outputs = net(inputs)
-      loss = criterion(outputs, labels)
+      outputs = net( inputs )
+      loss = criterion( outputs, labels )
       optimizer.zero_grad()
       loss.backward()
-      costs[k] = loss.data[0]
 
       # Perform a gradient descent update
       optimizer.step()
@@ -362,7 +391,6 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
       loss = mainLoss + regLoss
       costs[k] = loss.data[0]
       groupSparses[k] = findNumDeadNeurons( net )
-
 
       if k % params.printEvery == params.printEvery-1:
         print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
@@ -647,16 +675,18 @@ def trainWithSubGradDescentLS( net, criterion, params ):
 class Net(nn.Module):
   def __init__(self):
     super(Net, self).__init__()
-    self.conv1 = nn.Conv2d( 3, 6, 5 )
-    self.conv2 = nn.Conv2d( 6, 16, 5 )
-    self.fc1 = nn.Linear( 16 * 5 * 5, 120 )
-    self.fc2 = nn.Linear( 120, 84 )
-    self.fc3 = nn.Linear( 84, 10 )
+    self.conv1 = nn.Conv2d( 3, 30, 3 )  # inChannels, outChannels, kSize
+    self.conv2 = nn.Conv2d( 30, 30, 3 )
+    self.conv3 = nn.Conv2d( 30, 20, 3 )
+    self.fc1 = nn.Linear( 20 * 6 * 6, 120 )
+    self.fc2 = nn.Linear( 120, 80 )
+    self.fc3 = nn.Linear( 80, 10 )
 
   def forward(self, x):
-    x = F.avg_pool2d( F.softplus( self.conv1(x), beta=100 ), 2, 2 )
+    x = F.softplus( self.conv1(x), beta=100 )
     x = F.avg_pool2d( F.softplus( self.conv2(x), beta=100 ), 2, 2 )
-    x = x.view( -1, 16 * 5 * 5 )  # converts matrix to vector
+    x = F.avg_pool2d( F.softplus( self.conv3(x), beta=100 ), 2, 2 )
+    x = x.view( -1, 20 * 6 * 6 )  # converts matrix to vector
     x = F.relu( self.fc1(x) )
     x = F.relu( self.fc2(x) )
     x = self.fc3( x )
@@ -679,17 +709,17 @@ class Net(nn.Module):
 
 # Parameters for this code
 class Params:
-  batchSize = 1000
+  batchSize = 500
   datacase = 0
   momentum = 0.0
-  nBatches = 100000000
-  nEpochs = 1000
+  nBatches = 1000000
+  nEpochs = 300
   printEvery = 1
   regParam_normL1 = 0.1
   regParam_normL2L1 = 0.1
   regParam_normL2Lhalf = 0.1
   seed = 1
-  shuffle = True  # Shuffle the data in each minibatch
+  shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
   s = 1.25  # Step size scaling parameter (must be greater than 1)
   r = 0.9  # Backtracking line search parameter (must be between 0 and 1)
@@ -739,18 +769,52 @@ if __name__ == '__main__':
   # L2L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
-  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
 
-  plt.plot( costs )
+
+
+  # Experiment to determine the best learning rate for L2L1 regularization
+  #(costs1pt0,groupSparses1pt0) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
+  #with open('trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'wb') as f:
+  #  pickle.dump( (params, costs1pt0, groupSparses1pt0), f)
+
+  (costs0pt1,groupSparses0pt1) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
+  #with open('trainWithStochProxGradDescent_regL2L1Norm_0pt1.pkl', 'wb') as f:
+  #  pickle.dump( (params, costs0pt1, groupSparses0pt1), f)
+
+
+  #(costs0pt01,groupSparses0pt01) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.01 )
+  #with open('trainWithStochProxGradDescent_regL2L1Norm_0pt01.pkl', 'wb') as f:
+  #  pickle.dump( (params, costs0pt01, groupSparses0pt01), f)
+
+
+
+  line0pt01, = plt.plot( costs0pt01, 'r', alpha=0.7 )
+  line0pt1, = plt.plot( costs0pt1, 'k', alpha=0.7 )
+  line1pt0, = plt.plot( costs1pt0, 'b', alpha=0.7 )
+  plt.legend([line0pt01,line0pt1,line1pt0], ['0.01','0.1','1.0'])
+  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization')
+  plt.show()
+
+  line0pt01, = plt.plot( groupSparses0pt01, 'r', alpha=0.7 )
+  line0pt1, = plt.plot( groupSparses0pt1, 'k', alpha=0.7 )
+  line1pt0, = plt.plot( groupSparses1pt0, 'b', alpha=0.7 )
+  plt.legend([line0pt01,line0pt1,line1pt0], ['0.01','0.1','1.0'])
+  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization')
+  plt.show()
+
+
+
+
+
+
+  plt.plot( costs, 'k' )
   plt.show()
 
   plt.plot(sparses)
   plt.show()
 
-  import pdb; pdb.set_trace()
-
-  with open('trainWithProxGradDescent_regL1Norm.pkl', 'wb') as f:
-    pickle.dump( (costs,Params), f)
+  showTestResults( net, testloader )
 
   dataiter = iter(testloader)
   images, labels = dataiter.next()
@@ -764,34 +828,5 @@ if __name__ == '__main__':
   _, predicted = torch.max(outputs.data, 1)
 
   print( 'Predicted: ', ' '.join('%5s' % classes[predicted[j]] for j in range(4)) )
-
-
-  # Determine accuracy on test set
-  correct = 0
-  total = 0
-  for data in testloader:
-    images, labels = data
-    outputs = net(Variable(images))
-    _, predicted = torch.max(outputs.data, 1)
-    total += labels.size(0)
-    correct += (predicted == labels).sum()
-
-  print('Accuracy of the network on the 10000 test images: %d %%' % ( 100 * correct / total))
-
-  class_correct = list(0. for i in range(10))
-  class_total = list(0. for i in range(10))
-  for data in testloader:
-    images, labels = data
-    outputs = net(Variable(images))
-    _, predicted = torch.max(outputs.data, 1)
-    c = (predicted == labels).squeeze()
-    for i in range(4):
-      label = labels[i]
-      class_correct[label] += c[i]
-      class_total[label] += 1
-
-
-  for i in range(10):
-    print('Accuracy of %5s : %2d %%' % ( classes[i], 100 * class_correct[i] / class_total[i]))
 
 
