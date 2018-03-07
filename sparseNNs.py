@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pickle
+import re   # Regular expressions
 
 # Import torch and torchvision packages
 import torch
@@ -42,12 +43,43 @@ def crossEntropyLoss( outputs, labels ):
   return -torch.sum(outputs[range(num_examples), labels])/num_examples
 
 
+def determineTrainingError( net, trainloader ):
+  # Does not include regularization
+  loss = 0
+  for j, jData in enumerate( trainloader, 0 ):
+    jInputs, jLabels = jData
+    jInputs, jLabels = Variable(jInputs), Variable(jLabels)
+    jOutputs = net( jInputs )
+    thisLoss = criterion( jOutputs, jLabels )
+    loss += thisLoss.data[0]
+  return loss
+
+
 def findNumDeadNeurons( net ):
   nDead = 0
-  for p in net.parameters():
-    if np.max( np.absolute( p.data.numpy() ) ) <= 0:
-      nDead += 1
+  for pName, p in net.named_parameters():
+    if re.search( 'weight$', pName ):
+      nameParts = pName.split('.')
+      nameParts[-1] = 'bias'
+      bias = multi_getattr(net, ".".join(nameParts) )
+      biasData = bias.data.numpy()
+
+      if re.search( '^conv', pName ):
+        nNeurons = p.data.numpy().shape[0]
+        for n in range(0, nNeurons):
+          thisData = p.data[n, :, :, :].numpy()
+          thisBias = biasData[n]
+          maxData = np.max( np.absolute( thisData ) )
+          maxBias = np.max( np.absolute( thisBias ) )
+          if np.max([maxData,maxBias]) <= 0:
+            nDead += 1
+      elif re.search( '^fc', pName ):
+        maxData = np.max( np.absolute(p.data.numpy()) )
+        maxBias = np.max( biasData )
+        if np.max([maxData,maxBias]) <= 0:
+          nDead += 1
   return nDead
+
 
 def findNumParameters( net ):
   nParameters = 0
@@ -55,11 +87,13 @@ def findNumParameters( net ):
     nParameters += np.prod( list(p.size()) )
   return nParameters
 
+
 def findNumZeroParameters( net ):
   nZeroParameters = 0
   for p in net.parameters():
     nZeroParameters += p.data.numpy().size - np.count_nonzero( p.data.numpy() )
   return nZeroParameters
+
 
 def imshow(img):  # function to show an image
   img = img / 2 + 0.5     # unnormalize
@@ -141,11 +175,28 @@ def printLayerNames(net):
 
 def proxL2L1(m,t):
   if hasattr(m, 'weight'):
-    normData = np.sqrt( torch.sum( torch.mul( m.weight.data, m.weight.data ) ) )
-    if normData > t:
-      m.weight.data = m.weight.data - torch.mul( m.weight.data, t/normData )
-    else:
-      m.weight.data[:] = 0
+    neurWeight = m.weight.data.numpy()
+    neurBias = m.bias.data.numpy()
+    if str(type(m)) == "<class 'torch.nn.modules.linear.Linear'>":
+      normData = np.sqrt( np.sum(neurWeight*neurWeight) + np.sum(neurBias*neurBias) )
+      if normData > t:
+        m.weight.data = torch.from_numpy( neurWeight - neurWeight * t / normData )
+        m.bias.data = torch.from_numpy( neurBias - neurBias * t / normData )
+      else:
+        m.weight.data[:] = 0
+        m.bias.data[:] = 0
+    elif str(type(m)) == "<class 'torch.nn.modules.conv.Conv2d'>":
+      nNeurons = neurWeight.shape[0]
+      for n in range(0,nNeurons):
+        thisData = neurWeight[n,:,:,:]
+        thisBias = neurBias[n]
+        normData = np.sqrt( np.sum(thisData*thisData) + thisBias*thisBias )
+        if normData > t:
+          m.weight.data[n,:,:,:] = torch.from_numpy( thisData - thisData * t / normData )
+          m.bias.data[n] = thisBias - thisBias * t / normData
+        else:
+          m.weight.data[n,:,:,:] = 0
+          m.bias.data[n] = 0
 
 
 def proxL2Lhalf(m,t):
@@ -197,6 +248,8 @@ def softThreshWeights(m,t):
   # Apply a soft threshold with parameter t to the weights of a nn.Module object
   if hasattr(m, 'weight'):
     m.weight.data = torch.sign(m.weight.data) * torch.clamp( torch.abs(m.weight.data) - t, min=0 )
+  if hasattr(m, 'bias'):
+    m.bias.data = torch.sign(m.bias.data) * torch.clamp( torch.abs(m.bias.data) - t, min=0 )
 
 
 def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
@@ -254,7 +307,7 @@ def trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate )
   nEpochs = params.nEpochs
   nBatches = params.nBatches
   printEvery = params.printEvery
-  regParam = params.regParam_normL1
+  regParam = params.regParam_normL2L1
 
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
   nParameters = findNumParameters( net )
@@ -333,15 +386,20 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRat
       net.apply( lambda w: softThreshWeights( w, t=learningRate*regParam/nParameters ) )
 
       # Determine the current objective function's value
-      mainLoss = criterion( outputs, labels )
+      mainLoss = 0
+      for j, jData in enumerate( trainloader, 0 ):
+        jInputs, jLabels = jData
+        jInputs, jLabels = Variable(jInputs), Variable(jLabels)
+        jOutputs = net( jInputs )
+        thisLoss = criterion( jOutputs, jLabels )
+        mainLoss += thisLoss.data[0]
       regLoss = 0
       for W in net.parameters():
         regLoss = regLoss + W.norm(1)
       regLoss = torch.mul( regLoss, regParam/nParameters )
-      loss = mainLoss + regLoss
-      costs[k] = loss.data[0]
+      loss = mainLoss + regLoss.data[0]
+      costs[k] = loss
       sparses[k] = findNumZeroParameters( net )
-
 
       if k % params.printEvery == params.printEvery-1:
         print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
@@ -356,7 +414,7 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRat
 def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   nBatches = params.nBatches
-  regParam = params.regParam_normL1
+  regParam = params.regParam_normL2L1
 
   nParameters = findNumParameters( net )
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
@@ -393,7 +451,8 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
       groupSparses[k] = findNumDeadNeurons( net )
 
       if k % params.printEvery == params.printEvery-1:
-        print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
+        print( '[%d,%d] cost: %.3f,  group sparsity: %d' % \
+          ( epoch+1, i+1, costs[k], groupSparses[k] ) )
       k += 1
 
       if i >= nBatches-1:
@@ -713,16 +772,17 @@ class Params:
   datacase = 0
   momentum = 0.0
   nBatches = 1000000
-  nEpochs = 300
+  nEpochs = 50
   printEvery = 1
-  regParam_normL1 = 0.1
-  regParam_normL2L1 = 0.1
-  regParam_normL2Lhalf = 0.1
+  regParam_normL1 = 1e1
+  regParam_normL2L1 = 1e1
+  regParam_normL2Lhalf = 1e1
   seed = 1
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
   s = 1.25  # Step size scaling parameter (must be greater than 1)
   r = 0.9  # Backtracking line search parameter (must be between 0 and 1)
+
 
 if __name__ == '__main__':
 
@@ -763,7 +823,7 @@ if __name__ == '__main__':
 
   # L1 norm regularization
   #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
-  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
+  (costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
   #(costs, sparses) = trainWithProxGradDescent_regL1Norm(net, criterion, params, learningRate=1.0 )
 
   # L2L1 norm regularization
@@ -774,18 +834,17 @@ if __name__ == '__main__':
 
 
   # Experiment to determine the best learning rate for L2L1 regularization
-  #(costs1pt0,groupSparses1pt0) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
-  #with open('trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'wb') as f:
-  #  pickle.dump( (params, costs1pt0, groupSparses1pt0), f)
+  (costs1pt0,groupSparses1pt0) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
+  with open('trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'wb') as f:
+    pickle.dump( (params, net, costs1pt0, groupSparses1pt0), f)
 
-  (costs0pt1,groupSparses0pt1) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
-  #with open('trainWithStochProxGradDescent_regL2L1Norm_0pt1.pkl', 'wb') as f:
-  #  pickle.dump( (params, costs0pt1, groupSparses0pt1), f)
+  plt.plot( costs1pt0 )
+  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 1.0')
+  plt.show()
 
-
-  #(costs0pt01,groupSparses0pt01) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.01 )
-  #with open('trainWithStochProxGradDescent_regL2L1Norm_0pt01.pkl', 'wb') as f:
-  #  pickle.dump( (params, costs0pt01, groupSparses0pt01), f)
+  plt.plot( groupSparses1pt0 )
+  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 1.0')
+  plt.show()
 
 
 
@@ -825,7 +884,7 @@ if __name__ == '__main__':
 
 
   outputs = net( Variable(images) )
-  _, predicted = torch.max(outputs.data, 1)
+  _, predicted = torch.max( outputs.data, 1 )
 
   print( 'Predicted: ', ' '.join('%5s' % classes[predicted[j]] for j in range(4)) )
 
