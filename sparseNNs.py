@@ -59,25 +59,30 @@ def findNumDeadNeurons( net ):
   nDead = 0
   for pName, p in net.named_parameters():
     if re.search( 'weight$', pName ):
+      weightData = p.data.numpy()
       nameParts = pName.split('.')
       nameParts[-1] = 'bias'
       bias = multi_getattr(net, ".".join(nameParts) )
       biasData = bias.data.numpy()
 
       if re.search( '^conv', pName ):
+        # Convlutional layer
         nNeurons = p.data.numpy().shape[0]
         for n in range(0, nNeurons):
-          thisData = p.data[n, :, :, :].numpy()
+          thisData = weightData[n, :, :, :]
           thisBias = biasData[n]
           maxData = np.max( np.absolute( thisData ) )
           maxBias = np.max( np.absolute( thisBias ) )
           if np.max([maxData,maxBias]) <= 0:
             nDead += 1
       elif re.search( '^fc', pName ):
-        maxData = np.max( np.absolute(p.data.numpy()) )
-        maxBias = np.max( biasData )
-        if np.max([maxData,maxBias]) <= 0:
-          nDead += 1
+        # Fully connected linear layer
+        nNeurons = weightData.shape[0]
+        for n in range(0, nNeurons):
+          maxData = np.max( np.absolute( weightData[:,n] ) )
+          maxBias = np.max( biasData[n] )
+          if np.max([maxData,maxBias]) <= 0:
+            nDead += 1
   return nDead
 
 
@@ -86,6 +91,21 @@ def findNumParameters( net ):
   for p in net.parameters():
     nParameters += np.prod( list(p.size()) )
   return nParameters
+
+
+def findTestAccuracy( net, testloader ):
+  correct = 0
+  total = 0
+  for data in testloader:
+    images, labels = data
+    outputs = net(Variable(images))
+    _, predicted = torch.max(outputs.data, 1)
+    total += labels.size(0)
+    correct += (predicted == labels).sum()
+
+  accuracy = correct / total
+  return accuracy
+  print( 'Accuracy of the network on the 10000 test images: %d %%' % ( 100 * accuracy ) )
 
 
 def findNumZeroParameters( net ):
@@ -178,13 +198,19 @@ def proxL2L1(m,t):
     neurWeight = m.weight.data.numpy()
     neurBias = m.bias.data.numpy()
     if str(type(m)) == "<class 'torch.nn.modules.linear.Linear'>":
-      normData = np.sqrt( np.sum(neurWeight*neurWeight) + np.sum(neurBias*neurBias) )
-      if normData > t:
-        m.weight.data = torch.from_numpy( neurWeight - neurWeight * t / normData )
-        m.bias.data = torch.from_numpy( neurBias - neurBias * t / normData )
-      else:
-        m.weight.data[:] = 0
-        m.bias.data[:] = 0
+      for n in range(0,len(neurBias)):
+        thisData = neurWeight[:,n]
+        thisBias = neurBias[n]
+        normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
+        if normData > t:
+          neurWeight[:,n] = thisData - thisData * t / normData
+          neurBias[n] = thisBias - thisBias * t / normData
+        else:
+          neurWeight[:,n] = 0
+          neurBias[n] = 0
+      m.weight.data = torch.from_numpy( neurWeight )
+      m.weight.bias = torch.from_numpy( neurBias )
+
     elif str(type(m)) == "<class 'torch.nn.modules.conv.Conv2d'>":
       nNeurons = neurWeight.shape[0]
       for n in range(0,nNeurons):
@@ -217,16 +243,9 @@ def proxL2Lhalf(m,t):
 
 def showTestResults( net, testloader ):
   # Determine accuracy on test set
-  correct = 0
-  total = 0
-  for data in testloader:
-    images, labels = data
-    outputs = net(Variable(images))
-    _, predicted = torch.max(outputs.data, 1)
-    total += labels.size(0)
-    correct += (predicted == labels).sum()
 
-  print('Accuracy of the network on the 10000 test images: %d %%' % ( 100 * correct / total))
+  accuracy = findTestAccuracy( net, testloader )
+  print( 'Accuracy of the network on the 10000 test images: %d %%' % ( 100 * accuracy ) )
 
   class_correct = list(0. for i in range(10))
   class_total = list(0. for i in range(10))
@@ -746,8 +765,8 @@ class Net(nn.Module):
     x = F.avg_pool2d( F.softplus( self.conv2(x), beta=100 ), 2, 2 )
     x = F.avg_pool2d( F.softplus( self.conv3(x), beta=100 ), 2, 2 )
     x = x.view( -1, 20 * 6 * 6 )  # converts matrix to vector
-    x = F.relu( self.fc1(x) )
-    x = F.relu( self.fc2(x) )
+    x = F.softplus( self.fc1(x), beta=100 )
+    x = F.softplus( self.fc2(x), beta=100 )
     x = self.fc3( x )
     x = F.log_softmax( x, dim=1 )
     return x
@@ -772,11 +791,11 @@ class Params:
   datacase = 0
   momentum = 0.0
   nBatches = 1000000
-  nEpochs = 50
+  nEpochs = 100
   printEvery = 1
-  regParam_normL1 = 1e1
-  regParam_normL2L1 = 1e1
-  regParam_normL2Lhalf = 1e1
+  regParam_normL1 = 1e2
+  regParam_normL2L1 = 1e2
+  regParam_normL2Lhalf = 1e2
   seed = 1
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
@@ -823,7 +842,7 @@ if __name__ == '__main__':
 
   # L1 norm regularization
   #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
-  (costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
+  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
   #(costs, sparses) = trainWithProxGradDescent_regL1Norm(net, criterion, params, learningRate=1.0 )
 
   # L2L1 norm regularization
@@ -834,44 +853,22 @@ if __name__ == '__main__':
 
 
   # Experiment to determine the best learning rate for L2L1 regularization
-  (costs1pt0,groupSparses1pt0) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
-  with open('trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'wb') as f:
-    pickle.dump( (params, net, costs1pt0, groupSparses1pt0), f)
+  (costs0pt1,groupSparses0pt1) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
 
-  plt.plot( costs1pt0 )
-  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 1.0')
+  testAccuracy = findTestAccuracy( net, testloader )
+
+  with open('trainWithStochProxGradDescent_regL2L1Norm_0pt1.pkl', 'wb') as f:
+    pickle.dump( (params, net, testAccuracy, costs0pt1, groupSparses0pt1), f)
+
+  plt.plot( costs0pt1 )
+  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 0.1')
   plt.show()
 
-  plt.plot( groupSparses1pt0 )
-  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 1.0')
-  plt.show()
-
-
-
-  line0pt01, = plt.plot( costs0pt01, 'r', alpha=0.7 )
-  line0pt1, = plt.plot( costs0pt1, 'k', alpha=0.7 )
-  line1pt0, = plt.plot( costs1pt0, 'b', alpha=0.7 )
-  plt.legend([line0pt01,line0pt1,line1pt0], ['0.01','0.1','1.0'])
-  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization')
-  plt.show()
-
-  line0pt01, = plt.plot( groupSparses0pt01, 'r', alpha=0.7 )
-  line0pt1, = plt.plot( groupSparses0pt1, 'k', alpha=0.7 )
-  line1pt0, = plt.plot( groupSparses1pt0, 'b', alpha=0.7 )
-  plt.legend([line0pt01,line0pt1,line1pt0], ['0.01','0.1','1.0'])
-  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization')
+  plt.plot( groupSparses0pt1 )
+  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 0.1')
   plt.show()
 
 
-
-
-
-
-  plt.plot( costs, 'k' )
-  plt.show()
-
-  plt.plot(sparses)
-  plt.show()
 
   showTestResults( net, testloader )
 
