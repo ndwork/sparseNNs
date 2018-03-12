@@ -694,27 +694,22 @@ def trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRa
       mainLoss = criterion( outputs, labels )
       regLoss = Variable( torch.FloatTensor(1), requires_grad=True )
       for thisMod in net.modules():
-        print( "I got here" )
-      for pName, pValue in net.named_parameters():
-        # TODO: Use isinstance like shown below
-        #if isinstance( m, torch.nn.modules.conv.Conv2d ):
-        #elif isinstance( m, torch.nn.modules.linear.Linear ):
-        # Instead of iterating over parameters() or named_parameters(), could iterate over
-        # modules() instead
-        nameParts = pName.split('.')
-        nameParts[-1] = 'bias'
-        bias = multi_getattr(net, ".".join(nameParts) )
 
-        if re.search( '^conv.weight', pName ):
-          nNeurons = pValue.shape[0]
+        if isinstance(thisMod, torch.nn.modules.conv.Conv2d):
+          neurWeight = thisMod.weight
+          neurBias = thisMod.bias
+          nNeurons = neurWeight.shape[0]
           for n in range(0,nNeurons):
-            regLoss = regLoss + torch.sqrt( torch.mul( pValue[n,:,:,:].norm(2), pValue[n,:,:,:].norm(2) ) + \
-              torch.mul( bias[n], bias[n] ) )
-        elif re.search( '^fc.weight', pName ):
-          nNeurons = pValue.shape[0]
+            regLoss = regLoss + torch.sqrt( torch.mul( neurWeight[n,:,:,:].norm(2), neurWeight[n,:,:,:].norm(2) ) + \
+              torch.mul( neurBias[n], neurBias[n] ) )
+
+        elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
+          neurWeight = thisMod.weight
+          neurBias = thisMod.bias
+          nNeurons = neurWeight.shape[0]
           for n in range(0,nNeurons):
-            regLoss = regLoss + torch.sqrt( torch.mul( pValue[n,:].norm(2), pValue[n,:].norm(2) ) + \
-              torch.mul( bias[n], bias[n] ) )
+            regLoss = regLoss + torch.sqrt( torch.mul( neurWeight[n,:].norm(2), neurWeight[n,:].norm(2) ) + \
+              torch.mul( neurBias[n], neurBias[n] ) )
 
       loss = mainLoss + torch.mul( regLoss, regParam/nWeights )
       optimizer.zero_grad()
