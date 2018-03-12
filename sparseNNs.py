@@ -26,6 +26,8 @@ import torchvision.transforms as transforms
 def addOneToAllWeights(m):
   if hasattr(m, 'weight'):
     m.weight.data += 1
+  if hasattr(m, 'bias'):
+    m.bias.data += 1
 
 
 def crossEntropyLoss( outputs, labels ):
@@ -86,11 +88,11 @@ def findNumDeadNeurons( net ):
   return nDead
 
 
-def findNumParameters( net ):
-  nParameters = 0
+def findNumWeights( net ):
+  nWeights = 0
   for p in net.parameters():
-    nParameters += np.prod( list(p.size()) )
-  return nParameters
+    nWeights += np.prod( list(p.size()) )
+  return nWeights
 
 
 def findTestAccuracy( net, testloader ):
@@ -105,10 +107,10 @@ def findTestAccuracy( net, testloader ):
 
   accuracy = correct / total
   return accuracy
-  print( 'Accuracy of the network on the 10000 test images: %d %%' % ( 100 * accuracy ) )
+  print( 'Accuracy of the network on the 10000 test images: %d' % ( 100 * accuracy ) )
 
 
-def findNumZeroParameters( net ):
+def findNumZeroWeights( net ):
   nZeroParameters = 0
   for p in net.parameters():
     nZeroParameters += p.data.numpy().size - np.count_nonzero( p.data.numpy() )
@@ -138,6 +140,22 @@ def loadData( datacase=0, batchSize=100, shuffle=True ):
     testloader = torch.utils.data.DataLoader( testset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
 
     classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+
+    return (trainset, trainloader, testset, testloader, classes)
+
+  elif datacase == 1:
+    dataDir = '/Volumes/NDWORK128GB/cs230Data/mnist'
+    if not os.path.isdir(dataDir):
+      dataDir = '/Volumes/Seagate2TB/Data/mnist'
+
+    trans = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (1.0,))])
+    trainset = torchvision.datasets.MNIST( root=dataDir, train=True, download=True, transform=transform )
+    trainloader = torch.utils.data.DataLoader( trainset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
+
+    testset = torchvision.datasets.MNIST( root=dataDir, train=False, download=True, transform=transform )
+    testloader = torch.utils.data.DataLoader( testset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
+
+    classes = ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
 
     return (trainset, trainloader, testset, testloader, classes)
 
@@ -197,7 +215,7 @@ def proxL2L1(m,t):
   if hasattr(m, 'weight'):
     neurWeight = m.weight.data.numpy()
     neurBias = m.bias.data.numpy()
-    if str(type(m)) == "<class 'torch.nn.modules.linear.Linear'>":
+    if isinstance( m, torch.nn.modules.linear.Linear ):
       for n in range(0,len(neurBias)):
         thisData = neurWeight[:,n]
         thisBias = neurBias[n]
@@ -211,7 +229,7 @@ def proxL2L1(m,t):
       m.weight.data = torch.from_numpy( neurWeight )
       m.weight.bias = torch.from_numpy( neurBias )
 
-    elif str(type(m)) == "<class 'torch.nn.modules.conv.Conv2d'>":
+    elif isinstance( m, torch.nn.modules.conv.Conv2d ):
       nNeurons = neurWeight.shape[0]
       for n in range(0,nNeurons):
         thisData = neurWeight[n,:,:,:]
@@ -227,18 +245,46 @@ def proxL2L1(m,t):
 
 def proxL2LHalf(m,t):
   if hasattr( m, 'weight' ):
-    normWeights = np.sqrt( torch.sum( torch.mul( m.weight.data, m.weight.data ) ) )
-    if normWeights == 0:
-      m.weight.data[:] = 0
-    else :
-      alpha = t / np.power( normWeights, 1.5 )
-      if alpha < 2*np.sqrt(6)/9:
-        s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
-        m.weight.data = (s*s) * m.weight.data
-      else:
-        m.weight.data[:] = 0
+    neurWeight = m.weight.data.numpy()
+    neurBias = m.bias.data.numpy()
+    if isinstance( m, torch.nn.modules.linear.Linear ):
+      for n in range(0,len(neurBias)):
+        thisData = neurWeight[:,n]
+        thisBias = neurBias[n]
+        normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
 
-    normWeights = np.sqrt(torch.sum(torch.mul(m.weight.data, m.weight.data)))
+        if normData == 0:
+          thisData[:] = 0
+          thisBias[n] = 0
+        else :
+          alpha = t / np.power( normData, 1.5 )
+          if alpha < 2*np.sqrt(6)/9:
+            s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
+            thisData = (s*s) * thisData 
+          else:
+            thisData[:] = 0
+            thisBias[n] = 0
+
+    elif isinstance( m, torch.nn.modules.conv.Conv2d ):
+      for n in range(0,len(neurBias)):
+        thisData = neurWeight[n,:,:,:]
+        thisBias = neurBias[n]
+        normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
+
+        if normData == 0:
+          thisData[:] = 0
+          thisBias[n] = 0
+        else :
+          alpha = t / np.power( normData, 1.5 )
+          if alpha < 2*np.sqrt(6)/9:
+            s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
+            thisData = (s*s) * thisData 
+          else:
+            thisData[:] = 0
+            thisBias[n] = 0
+
+    m.weight.data = torch.from_numpy( thisData )
+    m.weight.bias = torch.from_numpy( thisBias )
 
 
 def showTestResults( net, testloader ):
@@ -289,7 +335,7 @@ def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
   regParam = params.regParam_normL1
 
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
-  nParameters = findNumParameters( net )
+  nWeights = findNumWeights( net )
 
   k = 0
   costs = [None] * nEpochs
@@ -313,17 +359,17 @@ def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
     optimizer.step()
 
     # Perform a proximal operator update
-    net.apply( lambda w: softThreshWeights( w, t=learningRate*regParam/nParameters ) )
+    net.apply( lambda w: softThreshWeights( w, t=learningRate*regParam/nWeights ) )
 
     # Determine the current objective function's value
     mainLoss = criterion( outputs, labels )
     regLoss = 0
     for W in net.parameters():
       regLoss = regLoss + W.norm(1)
-    regLoss = torch.mul( regLoss, regParam/nParameters )
+    regLoss = torch.mul( regLoss, regParam/nWeights )
     loss = mainLoss + regLoss
     costs[epoch] = loss.data[0]
-    sparses[epoch] = findNumZeroParameters( net )
+    sparses[epoch] = findNumZeroWeights( net )
 
     if epoch % printEvery == printEvery-1:
       print( '[%d] cost: %.3f' % (epoch+1, costs[k] ) )
@@ -340,7 +386,7 @@ def trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate )
   regParam = params.regParam_normL2L1
 
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
-  nParameters = findNumParameters( net )
+  nWeights = findNumWeights( net )
 
   k = 0
   costs = [None] * nEpochs
@@ -364,14 +410,14 @@ def trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate )
     optimizer.step()
 
     # Perform a proximal operator update
-    net.apply( lambda w: proxL2L1( w, t=learningRate*regParam/nParameters ) )
+    net.apply( lambda w: proxL2L1( w, t=learningRate*regParam/nWeights ) )
 
     # Determine the current objective function's value
     mainLoss = criterion( outputs, labels )
     regLoss = 0
     for W in net.parameters():
       regLoss = regLoss + W.norm(2)
-    regLoss = torch.mul( regLoss, regParam/nParameters )
+    regLoss = torch.mul( regLoss, regParam/nWeights )
     loss = mainLoss + regLoss
     costs[epoch] = loss.data[0]
 
@@ -390,7 +436,7 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRat
   nBatches = params.nBatches
   regParam = params.regParam_normL1
 
-  nParameters = findNumParameters( net )
+  nWeights = findNumWeights( net )
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
 
   k = 0
@@ -413,7 +459,7 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRat
       optimizer.step()
 
       # Perform a proximal operator update
-      net.apply( lambda w: softThreshWeights( w, t=learningRate*regParam/nParameters ) )
+      net.apply( lambda w: softThreshWeights( w, t=learningRate*regParam/nWeights ) )
 
       # Determine the current objective function's value
       mainLoss = 0
@@ -426,10 +472,10 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRat
       regLoss = 0
       for W in net.parameters():
         regLoss = regLoss + W.norm(1)
-      regLoss = torch.mul( regLoss, regParam/nParameters )
+      regLoss = torch.mul( regLoss, regParam/nWeights )
       loss = mainLoss + regLoss.data[0]
       costs[k] = loss
-      sparses[k] = findNumZeroParameters( net )
+      sparses[k] = findNumZeroWeights( net )
 
       if k % params.printEvery == params.printEvery-1:
         print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
@@ -446,7 +492,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
   nBatches = params.nBatches
   regParam = params.regParam_normL2L1
 
-  nParameters = findNumParameters( net )
+  nWeights = findNumWeights( net )
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
 
   k = 0
@@ -468,14 +514,14 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
       optimizer.step()
 
       # Perform a proximal operator update
-      net.apply( lambda w: proxL2L1( w, t=learningRate*regParam/nParameters ) )
+      net.apply( lambda w: proxL2L1( w, t=learningRate*regParam/nWeights ) )
 
       # Determine the current objective function's value
       mainLoss = criterion( outputs, labels )
       regLoss = 0
       for W in net.parameters():
         regLoss = regLoss + W.norm(2)
-      regLoss = torch.mul( regLoss, regParam/nParameters )
+      regLoss = torch.mul( regLoss, regParam/nWeights )
       loss = mainLoss + regLoss
       costs[k] = loss.data[0]
       groupSparses[k] = findNumDeadNeurons( net )
@@ -496,7 +542,7 @@ def trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learni
   nBatches = params.nBatches
   regParam = params.regParam_normL2L1
 
-  nParameters = findNumParameters( net )
+  nWeights = findNumWeights( net )
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
 
   k = 0
@@ -518,14 +564,14 @@ def trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learni
       optimizer.step()
 
       # Perform a proximal operator update
-      net.apply( lambda w: proxL2LHalf( w, t=learningRate*regParam/nParameters ) )
+      net.apply( lambda w: proxL2LHalf( w, t=learningRate*regParam/nWeights ) )
 
       # Determine the current objective function's value
       mainLoss = criterion( outputs, labels )
       regLoss = 0
       for W in net.parameters():
         regLoss = regLoss + W.norm(2)
-      regLoss = torch.mul( regLoss, regParam/nParameters )
+      regLoss = torch.mul( regLoss, regParam/nWeights )
       loss = mainLoss + regLoss
       costs[k] = loss.data[0]
       groupSparses[k] = findNumDeadNeurons( net )
@@ -586,7 +632,7 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate
   optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=momentum )
   #optimizer = optim.Adam( net.parameters(), lr=learningRate )
 
-  nParameters = findNumParameters(net)
+  nWeights = findNumWeights(net)
 
   k = 0
   costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
@@ -603,12 +649,12 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate
       regLoss = Variable( torch.FloatTensor(1), requires_grad=True)
       for W in net.parameters():
         regLoss = regLoss + W.norm(1)
-      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      loss = mainLoss + torch.mul( regLoss, regParam/nWeights )
       optimizer.zero_grad()
       loss.backward()
 
       costs[k] = loss.data[0]
-      sparses[k] = findNumZeroParameters(net)
+      sparses[k] = findNumZeroWeights(net)
 
       optimizer.step()
 
@@ -632,7 +678,7 @@ def trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRa
   optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=momentum )
   #optimizer = optim.Adam( net.parameters(), lr=learningRate )
 
-  nParameters = findNumParameters(net)
+  nWeights = findNumWeights(net)
 
   k = 0
   costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
@@ -647,9 +693,30 @@ def trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRa
       outputs = net(inputs)
       mainLoss = criterion( outputs, labels )
       regLoss = Variable( torch.FloatTensor(1), requires_grad=True )
-      for W in net.parameters():
-        regLoss = regLoss + W.norm(2)
-      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      for thisMod in net.modules():
+        print( "I got here" )
+      for pName, pValue in net.named_parameters():
+        # TODO: Use isinstance like shown below
+        #if isinstance( m, torch.nn.modules.conv.Conv2d ):
+        #elif isinstance( m, torch.nn.modules.linear.Linear ):
+        # Instead of iterating over parameters() or named_parameters(), could iterate over
+        # modules() instead
+        nameParts = pName.split('.')
+        nameParts[-1] = 'bias'
+        bias = multi_getattr(net, ".".join(nameParts) )
+
+        if re.search( '^conv.weight', pName ):
+          nNeurons = pValue.shape[0]
+          for n in range(0,nNeurons):
+            regLoss = regLoss + torch.sqrt( torch.mul( pValue[n,:,:,:].norm(2), pValue[n,:,:,:].norm(2) ) + \
+              torch.mul( bias[n], bias[n] ) )
+        elif re.search( '^fc.weight', pName ):
+          nNeurons = pValue.shape[0]
+          for n in range(0,nNeurons):
+            regLoss = regLoss + torch.sqrt( torch.mul( pValue[n,:].norm(2), pValue[n,:].norm(2) ) + \
+              torch.mul( bias[n], bias[n] ) )
+
+      loss = mainLoss + torch.mul( regLoss, regParam/nWeights )
       optimizer.zero_grad()
       loss.backward()
 
@@ -678,7 +745,7 @@ def trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learnin
   optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=momentum )
   #optimizer = optim.Adam( net.parameters(), lr=learningRate )
 
-  nParameters = findNumParameters(net)
+  nWeights = findNumWeights(net)
 
   k = 0
   costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
@@ -695,7 +762,7 @@ def trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learnin
       regLoss = Variable( torch.FloatTensor(1), requires_grad=True )
       for W in net.parameters():
         regLoss = regLoss + torch.sqrt( W.norm(2) )
-      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      loss = mainLoss + torch.mul( regLoss, regParam/nWeights )
       optimizer.zero_grad()
       loss.backward()
 
@@ -964,7 +1031,7 @@ if __name__ == '__main__':
 
 
   # Experiment to determine the best learning rate for L2L1 regularization
-  (costs0pt1,groupSparses0pt1) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
+  (costs,groupSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
 
   testAccuracy = findTestAccuracy( net, testloader )
 
