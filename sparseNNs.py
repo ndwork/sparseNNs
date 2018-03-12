@@ -225,7 +225,7 @@ def proxL2L1(m,t):
           m.bias.data[n] = 0
 
 
-def proxL2Lhalf(m,t):
+def proxL2LHalf(m,t):
   if hasattr( m, 'weight' ):
     normWeights = np.sqrt( torch.sum( torch.mul( m.weight.data, m.weight.data ) ) )
     if normWeights == 0:
@@ -261,6 +261,17 @@ def showTestResults( net, testloader ):
 
   for i in range(10):
     print('Accuracy of %5s : %2d %%' % ( classes[i], 100 * class_correct[i] / class_total[i]))
+
+
+def softThreshTwoWeights( m, tConv, tLinear ):
+  # Apply a soft threshold to the weights of a nn.Module object
+  # Applies one weight to the convolutional layers and another to the fully connected layers
+  if isinstance( m, torch.nn.modules.conv.Conv2d ):
+    m.weight.data = torch.sign(m.weight.data) * torch.clamp( torch.abs(m.weight.data) - tConv, min=0 )
+    m.bias.data = torch.sign(m.bias.data) * torch.clamp( torch.abs(m.bias.data) - tConv, min=0 )
+  elif isinstance( m, torch.nn.modules.linear.Linear ):
+    m.weight.data = torch.sign(m.weight.data) * torch.clamp( torch.abs(m.weight.data) - tLinear, min=0 )
+    m.bias.data = torch.sign(m.bias.data) * torch.clamp( torch.abs(m.bias.data) - tLinear, min=0 )
 
 
 def softThreshWeights(m,t):
@@ -480,6 +491,56 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
   return ( costs, groupSparses )
 
 
+def trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learningRate ):
+  nEpochs = params.nEpochs
+  nBatches = params.nBatches
+  regParam = params.regParam_normL2L1
+
+  nParameters = findNumParameters( net )
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+
+  k = 0
+  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  groupSparses = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      # Calculate the gradient using just a minibatch
+      outputs = net( inputs )
+      loss = criterion( outputs, labels )
+      optimizer.zero_grad()
+      loss.backward()
+
+      # Perform a gradient descent update
+      optimizer.step()
+
+      # Perform a proximal operator update
+      net.apply( lambda w: proxL2LHalf( w, t=learningRate*regParam/nParameters ) )
+
+      # Determine the current objective function's value
+      mainLoss = criterion( outputs, labels )
+      regLoss = 0
+      for W in net.parameters():
+        regLoss = regLoss + W.norm(2)
+      regLoss = torch.mul( regLoss, regParam/nParameters )
+      loss = mainLoss + regLoss
+      costs[k] = loss.data[0]
+      groupSparses[k] = findNumDeadNeurons( net )
+
+      if k % params.printEvery == params.printEvery-1:
+        print( '[%d,%d] cost: %.3f,  group sparsity: %d' % \
+          ( epoch+1, i+1, costs[k], groupSparses[k] ) )
+      k += 1
+
+      if i >= nBatches-1:
+        break
+
+  return ( costs, groupSparses )
+
+
 def trainWithStochSubGradDescent( net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   momentum = params.momentum
@@ -588,6 +649,52 @@ def trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRa
       regLoss = Variable( torch.FloatTensor(1), requires_grad=True )
       for W in net.parameters():
         regLoss = regLoss + W.norm(2)
+      loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
+      optimizer.zero_grad()
+      loss.backward()
+
+      costs[k] = loss.data[0]
+      groupSparses[k] = findNumDeadNeurons( net )
+
+      optimizer.step()
+
+      if k % printEvery == printEvery-1:
+        print( '[%d,%d] cost: %.3f' % ( epoch+1, k+1, costs[k] ) )
+      k += 1
+
+      if i >= nBatches-1:
+        break
+
+  return ( costs, groupSparses )
+
+
+def trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learningRate ):
+  nEpochs = params.nEpochs
+  momentum = params.momentum
+  nBatches = params.nBatches
+  printEvery = params.printEvery
+  regParam = params.regParam_normL2L1
+
+  optimizer = optim.SGD( net.parameters(), lr=learningRate, momentum=momentum )
+  #optimizer = optim.Adam( net.parameters(), lr=learningRate )
+
+  nParameters = findNumParameters(net)
+
+  k = 0
+  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  groupSparses = [None] * (nEpochs * np.min([len(trainloader), nBatches]))
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    for i, data in enumerate( trainloader, 0 ):
+      inputs, labels = data
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      # Calculate the gradient using just a minibatch
+      outputs = net(inputs)
+      mainLoss = criterion( outputs, labels )
+      regLoss = Variable( torch.FloatTensor(1), requires_grad=True )
+      for W in net.parameters():
+        regLoss = regLoss + torch.sqrt( W.norm(2) )
       loss = mainLoss + torch.mul( regLoss, regParam/nParameters )
       optimizer.zero_grad()
       loss.backward()
@@ -824,6 +931,7 @@ if __name__ == '__main__':
   # Tests
   #net.apply(addOneToAllWeights)  # adds one to all of the weights in the model
   #net.apply( lambda w: softThreshWeights(w,t=1) )  #Applies soft threshold to all weights
+  #net.apply( lambda w: softThreshTwoWeights(w,tConv=1,tLinear=10) )  #Applies two soft thresholds to weights
   #net.apply( lambda w: proxL2L1(w,t=1) )  #Applies soft threshold to all weights
 
   #list(net.parameters())  # lists the parameter (or weight) values
@@ -836,20 +944,23 @@ if __name__ == '__main__':
   criterion = crossEntropyLoss  # Explicit definiton of cross-entropy loss (without softmax)
 
   # noRegularization
-  #costs = trainWithSubGradDescent( net, criterion, params, learningRate=1.0 )
+  #costs = trainWithSubGradDescent( net, criterion, params, learningRate=0.1 )
   #costs = trainWithSubGradDescentLS( net, criterion, params, learningRate=0.1 )
-  #costs = trainWithStochSubGradDescent( net, criterion, params, learningRate=1.0 )
+  #costs = trainWithStochSubGradDescent( net, criterion, params, learningRate=0.1 )
 
   # L1 norm regularization
-  #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
-  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
-  #(costs, sparses) = trainWithProxGradDescent_regL1Norm(net, criterion, params, learningRate=1.0 )
+  #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate=0.1 )
+  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=0.1 )
+  #(costs, sparses) = trainWithProxGradDescent_regL1Norm(net, criterion, params, learningRate=0.1 )
 
-  # L2L1 norm regularization
-  #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
-  #(costs,groupSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
-  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
+  # L2,L1 norm regularization
+  #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
+  #(costs,groupSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
 
+  #L2,L1/2 norm regularization
+  #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=0.1 )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=0.1 )
 
 
   # Experiment to determine the best learning rate for L2L1 regularization
