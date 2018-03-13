@@ -59,32 +59,29 @@ def determineTrainingError( net, trainloader ):
 
 def findNumDeadNeurons( net ):
   nDead = 0
-  for pName, p in net.named_parameters():
-    if re.search( 'weight$', pName ):
-      weightData = p.data.numpy()
-      nameParts = pName.split('.')
-      nameParts[-1] = 'bias'
-      bias = multi_getattr(net, ".".join(nameParts) )
-      biasData = bias.data.numpy()
+  for thisMod in net.modules():
+    if hasattr(thisMod, 'weight'):
+      weightData = thisMod.weight.data.numpy()
+      biasData = thisMod.bias.data.numpy()
 
-      if re.search( '^conv', pName ):
-        # Convlutional layer
-        nNeurons = p.data.numpy().shape[0]
+      if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
+        nNeurons = weightData.shape[0]
         for n in range(0, nNeurons):
-          thisData = weightData[n, :, :, :]
+          thisData = weightData[n,:,:,:]
           thisBias = biasData[n]
           maxData = np.max( np.absolute( thisData ) )
           maxBias = np.max( np.absolute( thisBias ) )
           if np.max([maxData,maxBias]) <= 0:
             nDead += 1
-      elif re.search( '^fc', pName ):
-        # Fully connected linear layer
-        nNeurons = weightData.shape[0]
-        for n in range(0, nNeurons):
-          maxData = np.max( np.absolute( weightData[:,n] ) )
-          maxBias = np.max( biasData[n] )
-          if np.max([maxData,maxBias]) <= 0:
-            nDead += 1
+
+      elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
+          nNeurons = weightData.shape[0]
+          for n in range(0, nNeurons):
+            maxData = np.max( np.absolute( weightData[n,:] ) )
+            maxBias = np.max( biasData[n] )
+            if np.max([maxData,maxBias]) <= 0:
+              nDead += 1
+
   return nDead
 
 
@@ -217,14 +214,14 @@ def proxL2L1(m,t):
     neurBias = m.bias.data.numpy()
     if isinstance( m, torch.nn.modules.linear.Linear ):
       for n in range(0,len(neurBias)):
-        thisData = neurWeight[:,n]
+        thisData = neurWeight[n,:]
         thisBias = neurBias[n]
         normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
         if normData > t:
-          neurWeight[:,n] = thisData - thisData * t / normData
+          neurWeight[n,:] = thisData - thisData * t / normData
           neurBias[n] = thisBias - thisBias * t / normData
         else:
-          neurWeight[:,n] = 0
+          neurWeight[n,:] = 0
           neurBias[n] = 0
       m.weight.data = torch.from_numpy( neurWeight )
       m.weight.bias = torch.from_numpy( neurBias )
@@ -249,8 +246,8 @@ def proxL2LHalf(m,t):
     neurBias = m.bias.data.numpy()
     if isinstance( m, torch.nn.modules.linear.Linear ):
       for n in range(0,len(neurBias)):
-        thisData = neurWeight[:,n]
-        thisBias = neurBias[n]
+        thisData = neurWeight[n,:]
+        thisBias = neurBias[:]
         normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
 
         if normData == 0:
@@ -261,6 +258,7 @@ def proxL2LHalf(m,t):
           if alpha < 2*np.sqrt(6)/9:
             s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
             thisData = (s*s) * thisData 
+            thisBias = (s*s) * thisBias 
           else:
             thisData[:] = 0
             thisBias[n] = 0
@@ -268,7 +266,7 @@ def proxL2LHalf(m,t):
     elif isinstance( m, torch.nn.modules.conv.Conv2d ):
       for n in range(0,len(neurBias)):
         thisData = neurWeight[n,:,:,:]
-        thisBias = neurBias[n]
+        thisBias = neurBias[:]
         normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
 
         if normData == 0:
@@ -279,6 +277,7 @@ def proxL2LHalf(m,t):
           if alpha < 2*np.sqrt(6)/9:
             s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
             thisData = (s*s) * thisData 
+            thisBias = (s*s) * thisBias 
           else:
             thisData[:] = 0
             thisBias[n] = 0
@@ -372,7 +371,7 @@ def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
     sparses[epoch] = findNumZeroWeights( net )
 
     if epoch % printEvery == printEvery-1:
-      print( '[%d] cost: %.3f' % (epoch+1, costs[k] ) )
+      print( '[%d] cost: %.3f, sparsity: %d' % (epoch+1, costs[k], sparses[epoch] ) )
 
     k += 1
 
@@ -424,7 +423,7 @@ def trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate )
     groupSparses[epoch] = findNumDeadNeurons( net )
 
     if epoch % printEvery == printEvery-1:
-      print( '[%d] cost: %.3f' % (epoch+1, costs[k] ) )
+      print( '[%d] cost: %.3f, groupSparsity: %d' % (epoch+1, costs[k], groupSparses[epoch] ) )
 
     k += 1
 
@@ -463,12 +462,9 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRat
 
       # Determine the current objective function's value
       mainLoss = 0
-      for j, jData in enumerate( trainloader, 0 ):
-        jInputs, jLabels = jData
-        jInputs, jLabels = Variable(jInputs), Variable(jLabels)
-        jOutputs = net( jInputs )
-        thisLoss = criterion( jOutputs, jLabels )
-        mainLoss += thisLoss.data[0]
+      outputs = net(inputs)
+      thisLoss = criterion(outputs, labels)
+      mainLoss += thisLoss.data[0]
       regLoss = 0
       for W in net.parameters():
         regLoss = regLoss + W.norm(1)
@@ -478,7 +474,7 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRat
       sparses[k] = findNumZeroWeights( net )
 
       if k % params.printEvery == params.printEvery-1:
-        print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
+        print( '[%d,%d] cost: %.3f, sparsity: %d' % ( epoch+1, i+1, costs[k], sparses[k] ) )
       k += 1
 
       if i >= nBatches-1:
@@ -659,7 +655,7 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate
       optimizer.step()
 
       if k % printEvery == printEvery-1:
-        print( '[%d,%d] cost: %.3f' % ( epoch+1, k+1, costs[k] ) )
+        print( '[%d,%d] cost: %.3f, sparsity: %d' % ( epoch+1, k+1, costs[k], sparses[k] ) )
       k += 1
 
       if i >= nBatches-1:
@@ -721,7 +717,8 @@ def trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRa
       optimizer.step()
 
       if k % printEvery == printEvery-1:
-        print( '[%d,%d] cost: %.3f' % ( epoch+1, k+1, costs[k] ) )
+        print( '[%d,%d] cost: %.3f,  group sparsity: %d' % \
+          ( epoch+1, i+1, costs[k], groupSparses[k] ) )
       k += 1
 
       if i >= nBatches-1:
@@ -755,8 +752,26 @@ def trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learnin
       outputs = net(inputs)
       mainLoss = criterion( outputs, labels )
       regLoss = Variable( torch.FloatTensor(1), requires_grad=True )
-      for W in net.parameters():
-        regLoss = regLoss + torch.sqrt( W.norm(2) )
+      for thisMod in net.modules():
+
+        if isinstance(thisMod, torch.nn.modules.conv.Conv2d):
+          neurWeight = thisMod.weight
+          neurBias = thisMod.bias
+          nNeurons = neurWeight.shape[0]
+          for n in range(0,nNeurons):
+            regLoss = regLoss + torch.sqrt( torch.sqrt( \
+              torch.mul( neurWeight[n,:,:,:].norm(2), neurWeight[n,:,:,:].norm(2) ) + \
+              torch.mul( neurBias[n], neurBias[n] ) ) )
+
+        elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
+          neurWeight = thisMod.weight
+          neurBias = thisMod.bias
+          nNeurons = neurWeight.shape[0]
+          for n in range(0,nNeurons):
+            regLoss = regLoss + torch.sqrt( torch.sqrt( \
+              torch.mul( neurWeight[n,:].norm(2), neurWeight[n,:].norm(2) ) + \
+              torch.mul( neurBias[n], neurBias[n] ) ) )
+
       loss = mainLoss + torch.mul( regLoss, regParam/nWeights )
       optimizer.zero_grad()
       loss.backward()
@@ -767,7 +782,8 @@ def trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learnin
       optimizer.step()
 
       if k % printEvery == printEvery-1:
-        print( '[%d,%d] cost: %.3f' % ( epoch+1, k+1, costs[k] ) )
+        print( '[%d,%d] cost: %.3f,  group sparsity: %d' % \
+          ( epoch+1, i+1, costs[k], groupSparses[k] ) )
       k += 1
 
       if i >= nBatches-1:
@@ -922,10 +938,10 @@ def trainWithSubGradDescentLS( net, criterion, params ):
 class Net(nn.Module):
   def __init__(self):
     super(Net, self).__init__()
-    self.conv1 = nn.Conv2d( 3, 30, 3 )  # inChannels, outChannels, kSize
+    self.conv1 = nn.Conv2d( 3, 30, 3 )   # inChannels, outChannels, kSize
     self.conv2 = nn.Conv2d( 30, 30, 3 )
     self.conv3 = nn.Conv2d( 30, 20, 3 )
-    self.fc1 = nn.Linear( 20 * 6 * 6, 120 )
+    self.fc1 = nn.Linear( 20 * 6 * 6, 120 )   # inChannels, outChannels
     self.fc2 = nn.Linear( 120, 80 )
     self.fc3 = nn.Linear( 80, 10 )
 
@@ -1017,16 +1033,13 @@ if __name__ == '__main__':
 
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
-  #(costs,groupSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
+  (costs,groupSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
   #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
 
   #L2,L1/2 norm regularization
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=0.1 )
   #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=0.1 )
 
-
-  # Experiment to determine the best learning rate for L2L1 regularization
-  (costs,groupSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
 
   testAccuracy = findTestAccuracy( net, testloader )
 
