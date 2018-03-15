@@ -1042,7 +1042,8 @@ if __name__ == '__main__':
   ( trainset, trainloader, testset, testloader, classes ) = loadData( \
     params.datacase, params.batchSize, params.shuffle )
 
-  net = Net.cuda() if params.cuda else Net()
+  net = Net()
+  net = net.cuda() if params.cuda else net()
 
 
   # get some random training images
