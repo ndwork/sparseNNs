@@ -553,11 +553,13 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
       # Determine the current objective function's value
       mainLoss = criterion( outputs, labels )
       regLoss = 0
-      for W in net.parameters():
-        regLoss = regLoss + W.norm(2)
-      regLoss = torch.mul( regLoss, regParam/nWeights )
+      for thisMod in net.modules():
+        neurWeight = thisMod.weight.data.cpu().numpy()
+        neurBias = thisMod.bias.data.cpu().numpy()
+        regLoss = regLoss + np.square( np.sum( neurWeight * neurWeight ) + np.sum( neurBias * neurBias ) )
+      regLoss = regLoss * regParam/nWeights
       loss = mainLoss + regLoss
-      costs[k] = loss.data[0]
+      costs[k] = mainLoss.data[0] + regLoss
       groupSparses[k] = findNumDeadNeurons( net )
 
       if k % params.printEvery == params.printEvery-1:
