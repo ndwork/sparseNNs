@@ -260,50 +260,51 @@ def proxL2L1( net, t ):
       thisMod.weight.bias = torch.from_numpy( neurBias )
 
 
-def proxL2LHalf(m,t):
-  if hasattr( m, 'weight' ):
-    neurWeight = m.weight.data.numpy()
-    neurBias = m.bias.data.numpy()
-    if isinstance( m, torch.nn.modules.linear.Linear ):
-      for n in range(0,len(neurBias)):
-        thisData = neurWeight[n,:]
-        thisBias = neurBias[:]
-        normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
+def proxL2LHalf(net,t):
+  for thisMod in net.modules()
+    if hasattr( thisMod, 'weight' ):
+      neurWeight = thisMod.weight.data.numpy()
+      neurBias = thisMod.bias.data.numpy()
+      if isinstance( m, torch.nn.modules.linear.Linear ):
+        for n in range(0,len(neurBias)):
+          thisData = neurWeight[n,:]
+          thisBias = neurBias[:]
+          normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
 
-        if normData == 0:
-          thisData[:] = 0
-          thisBias[n] = 0
-        else :
-          alpha = t / np.power( normData, 1.5 )
-          if alpha < 2*np.sqrt(6)/9:
-            s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
-            thisData = (s*s) * thisData 
-            thisBias = (s*s) * thisBias 
-          else:
+          if normData == 0:
             thisData[:] = 0
             thisBias[n] = 0
+          else :
+            alpha = t / np.power( normData, 1.5 )
+            if alpha < 2*np.sqrt(6)/9:
+              s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
+              thisData = (s*s) * thisData 
+              thisBias = (s*s) * thisBias 
+            else:
+              thisData[:] = 0
+              thisBias[n] = 0
 
-    elif isinstance( m, torch.nn.modules.conv.Conv2d ):
-      for n in range(0,len(neurBias)):
-        thisData = neurWeight[n,:,:,:]
-        thisBias = neurBias[:]
-        normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
+      elif isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
+        for n in range(0,len(neurBias)):
+          thisData = neurWeight[n,:,:,:]
+          thisBias = neurBias[:]
+          normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
 
-        if normData == 0:
-          thisData[:] = 0
-          thisBias[n] = 0
-        else :
-          alpha = t / np.power( normData, 1.5 )
-          if alpha < 2*np.sqrt(6)/9:
-            s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
-            thisData = (s*s) * thisData 
-            thisBias = (s*s) * thisBias 
-          else:
+          if normData == 0:
             thisData[:] = 0
             thisBias[n] = 0
+          else :
+            alpha = t / np.power( normData, 1.5 )
+            if alpha < 2*np.sqrt(6)/9:
+              s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
+              thisData = (s*s) * thisData 
+              thisBias = (s*s) * thisBias 
+            else:
+              thisData[:] = 0
+              thisBias[n] = 0
 
-    m.weight.data = torch.from_numpy( thisData )
-    m.weight.bias = torch.from_numpy( thisBias )
+      thisMod.weight.data = torch.from_numpy( thisData )
+      thisMod.weight.bias = torch.from_numpy( thisBias )
 
 
 def showTestResults( net, testloader ):
