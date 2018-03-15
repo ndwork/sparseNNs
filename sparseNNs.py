@@ -61,8 +61,8 @@ def findNumDeadNeurons( net, thresh=0 ):
   nDead = 0
   for thisMod in net.modules():
     if hasattr(thisMod, 'weight'):
-      weightData = thisMod.weight.data.numpy()
-      biasData = thisMod.bias.data.numpy()
+      weightData = thisMod.weight.data.cpu().numpy()
+      biasData = thisMod.bias.data.cpu().numpy()
 
       if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
         nNeurons = weightData.shape[0]
@@ -1046,7 +1046,7 @@ if __name__ == '__main__':
     params.datacase, params.batchSize, params.shuffle )
 
   net = Net()
-  net = net.cuda() if params.cuda else net()
+  net = net.cuda() if params.cuda else net
 
 
   # get some random training images
