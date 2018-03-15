@@ -122,10 +122,16 @@ def imshow(img):  # function to show an image
 
 def loadData( datacase=0, batchSize=100, shuffle=True ):
 
+  mainDataDir = '/Volumes/NDWORK128GB/cs230Data/'
+  if not os.path.isdir(mainDataDir):
+    mainDataDir = 'Volumes/Seagate2TB/Data/'
+  if not os.path.isdir(mainDataDir):
+    mainDataDir = './data'
+  if not os.path.isdir(mainDataDir):
+    os.mkdir( mainDataDir )
+
   if datacase == 0:
-    dataDir = '/Volumes/NDWORK128GB/cs230Data/cifar10'
-    if not os.path.isdir(dataDir):
-      dataDir = '/Volumes/Seagate2TB/Data/cifar10'
+    dataDir = mainDataDir + '/cifar10'
 
     transform = transforms.Compose( [transforms.ToTensor(), 
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -141,9 +147,7 @@ def loadData( datacase=0, batchSize=100, shuffle=True ):
     return (trainset, trainloader, testset, testloader, classes)
 
   elif datacase == 1:
-    dataDir = '/Volumes/NDWORK128GB/cs230Data/mnist'
-    if not os.path.isdir(dataDir):
-      dataDir = '/Volumes/Seagate2TB/Data/mnist'
+    dataDir = mainDataDir + '/mnist'
 
     trans = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (1.0,))])
     trainset = torchvision.datasets.MNIST( root=dataDir, train=True, download=True, transform=transform )
@@ -157,7 +161,7 @@ def loadData( datacase=0, batchSize=100, shuffle=True ):
     return (trainset, trainloader, testset, testloader, classes)
 
   elif datacase == 2:
-    dataDir = '/Volumes/NDWORK128GB/cs230Data/stl10'
+    dataDir = mainDataDir = '/stl10'
     if not os.path.isdir(dataDir):
       dataDir = '/Volumes/Seagate2TB/Data/stl10'
 
