@@ -57,7 +57,7 @@ def determineTrainingError( net, trainloader ):
   return loss
 
 
-def findNumDeadNeurons( net ):
+def findNumDeadNeurons( net, thresh=0 ):
   nDead = 0
   for thisMod in net.modules():
     if hasattr(thisMod, 'weight'):
@@ -71,7 +71,7 @@ def findNumDeadNeurons( net ):
           thisBias = biasData[n]
           maxData = np.max( np.absolute( thisData ) )
           maxBias = np.max( np.absolute( thisBias ) )
-          if np.max([maxData,maxBias]) <= 0:
+          if np.max([maxData,maxBias]) <= thresh:
             nDead += 1
 
       elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
@@ -79,7 +79,7 @@ def findNumDeadNeurons( net ):
           for n in range(0, nNeurons):
             maxData = np.max( np.absolute( weightData[n,:] ) )
             maxBias = np.max( biasData[n] )
-            if np.max([maxData,maxBias]) <= 0:
+            if np.max([maxData,maxBias]) <= thresh:
               nDead += 1
 
   return nDead
@@ -156,6 +156,24 @@ def loadData( datacase=0, batchSize=100, shuffle=True ):
 
     return (trainset, trainloader, testset, testloader, classes)
 
+  elif datacase == 2:
+    dataDir = '/Volumes/NDWORK128GB/cs230Data/stl10'
+    if not os.path.isdir(dataDir):
+      dataDir = '/Volumes/Seagate2TB/Data/stl10'
+
+    transform = transforms.Compose( [transforms.ToTensor(), 
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+    trainset = torchvision.datasets.STL10( root=dataDir, train=True, download=True, transform=transform )
+    trainloader = torch.utils.data.DataLoader( trainset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
+
+    testset = torchvision.datasets.STL10( root=dataDir, train=False, download=True, transform=transform )
+    testloader = torch.utils.data.DataLoader( testset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
+
+    classes = ('airplane', 'bird', 'car', 'cat', 'deer', 'dog', 'horse', 'monkey', 'ship', 'truck')
+
+    return (trainset, trainloader, testset, testloader, classes)
+
   else:
     print( 'Error: incorrect datacase entered' )
 
@@ -208,36 +226,38 @@ def printLayerNames(net):
     print(name)  # prints the names of all the parameters
 
 
-def proxL2L1(m,t):
-  if hasattr(m, 'weight'):
-    neurWeight = m.weight.data.numpy()
-    neurBias = m.bias.data.numpy()
-    if isinstance( m, torch.nn.modules.linear.Linear ):
-      for n in range(0,len(neurBias)):
-        thisData = neurWeight[n,:]
-        thisBias = neurBias[n]
-        normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
-        if normData > t:
-          neurWeight[n,:] = thisData - thisData * t / normData
-          neurBias[n] = thisBias - thisBias * t / normData
-        else:
-          neurWeight[n,:] = 0
-          neurBias[n] = 0
-      m.weight.data = torch.from_numpy( neurWeight )
-      m.weight.bias = torch.from_numpy( neurBias )
+def proxL2L1( net, t ):
+  for thisMod in net.modules():
+    if hasattr( thisMod, 'weight'):
+      neurWeight = thisMod.weight.data.numpy()
+      neurBias = thisMod.bias.data.numpy()
+      if isinstance( thisMod, torch.nn.modules.linear.Linear ):
+        for n in range(0,len(neurBias)):
+          thisData = neurWeight[n,:]
+          thisBias = neurBias[n]
+          normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
+          if normData > t:
+            neurWeight[n,:] = thisData - thisData * t / normData
+            neurBias[n] = thisBias - thisBias * t / normData
+          else:
+            neurWeight[n,:] = 0
+            neurBias[n] = 0
 
-    elif isinstance( m, torch.nn.modules.conv.Conv2d ):
-      nNeurons = neurWeight.shape[0]
-      for n in range(0,nNeurons):
-        thisData = neurWeight[n,:,:,:]
-        thisBias = neurBias[n]
-        normData = np.sqrt( np.sum(thisData*thisData) + thisBias*thisBias )
-        if normData > t:
-          m.weight.data[n,:,:,:] = torch.from_numpy( thisData - thisData * t / normData )
-          m.bias.data[n] = thisBias - thisBias * t / normData
-        else:
-          m.weight.data[n,:,:,:] = 0
-          m.bias.data[n] = 0
+      elif isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
+        nNeurons = neurWeight.shape[0]
+        for n in range(0,nNeurons):
+          thisData = neurWeight[n,:,:,:]
+          thisBias = neurBias[n]
+          normData = np.sqrt( np.sum(thisData*thisData) + thisBias*thisBias )
+          if normData > t:
+            neurWeight[n,:,:,:] = thisData - thisData * t / normData
+            neurBias[n] = thisBias - thisBias * t / normData
+          else:
+            neurWeight[n,:,:,:] = 0
+            neurBias[n] = 0
+
+      thisMod.weight.data = torch.from_numpy( neurWeight )
+      thisMod.weight.bias = torch.from_numpy( neurBias )
 
 
 def proxL2LHalf(m,t):
@@ -319,12 +339,14 @@ def softThreshTwoWeights( m, tConv, tLinear ):
     m.bias.data = torch.sign(m.bias.data) * torch.clamp( torch.abs(m.bias.data) - tLinear, min=0 )
 
 
-def softThreshWeights(m,t):
-  # Apply a soft threshold with parameter t to the weights of a nn.Module object
-  if hasattr(m, 'weight'):
-    m.weight.data = torch.sign(m.weight.data) * torch.clamp( torch.abs(m.weight.data) - t, min=0 )
-  if hasattr(m, 'bias'):
-    m.bias.data = torch.sign(m.bias.data) * torch.clamp( torch.abs(m.bias.data) - t, min=0 )
+def softThreshWeights( net, t ):
+  for thisMod in net.modules():
+    if hasattr( thisMod, 'weight' ):
+      thisMod.weight.data = torch.sign(thisMod.weight.data) * \
+        torch.clamp( torch.abs(thisMod.weight.data) - t, min=0 )
+    if hasattr(m, 'bias'):
+      thisMod.bias.data = torch.sign(thisMod.bias.data) * \
+        torch.clamp( torch.abs(thisMod.bias.data) - t, min=0 )
 
 
 def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
@@ -358,7 +380,7 @@ def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
     optimizer.step()
 
     # Perform a proximal operator update
-    net.apply( lambda w: softThreshWeights( w, t=learningRate*regParam/nWeights ) )
+    softThreshWeights( net, learningRate*regParam/nWeights )
 
     # Determine the current objective function's value
     mainLoss = criterion( outputs, labels )
@@ -409,7 +431,7 @@ def trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate )
     optimizer.step()
 
     # Perform a proximal operator update
-    net.apply( lambda w: proxL2L1( w, t=learningRate*regParam/nWeights ) )
+    proxL2L1( net, t=learningRate*regParam/nWeights )
 
     # Determine the current objective function's value
     mainLoss = criterion( outputs, labels )
@@ -458,7 +480,7 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRat
       optimizer.step()
 
       # Perform a proximal operator update
-      net.apply( lambda w: softThreshWeights( w, t=learningRate*regParam/nWeights ) )
+      softThreshWeights( net, learningRate*regParam/nWeights )
 
       # Determine the current objective function's value
       mainLoss = 0
@@ -510,7 +532,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
       optimizer.step()
 
       # Perform a proximal operator update
-      net.apply( lambda w: proxL2L1( w, t=learningRate*regParam/nWeights ) )
+      proxL2L1( net, t=learningRate*regParam/nWeights )
 
       # Determine the current objective function's value
       mainLoss = criterion( outputs, labels )
@@ -679,6 +701,7 @@ def trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRa
   k = 0
   costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
   groupSparses = [None] * (nEpochs * np.min([len(trainloader), nBatches]))
+  groupAlmostSparses = [None] * (nEpochs * np.min([len(trainloader), nBatches]))
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     for i, data in enumerate( trainloader, 0 ):
@@ -713,18 +736,19 @@ def trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRa
 
       costs[k] = loss.data[0]
       groupSparses[k] = findNumDeadNeurons( net )
+      groupAlmostSparses[k] = findNumDeadNeurons( net, thresh=1e-6 )
 
       optimizer.step()
 
       if k % printEvery == printEvery-1:
-        print( '[%d,%d] cost: %.3f,  group sparsity: %d' % \
-          ( epoch+1, i+1, costs[k], groupSparses[k] ) )
+        print( '[%d,%d] cost: %.3f,  group sparsity: %d,  group almost sparsity: %d' % \
+          ( epoch+1, i+1, costs[k], groupSparses[k], groupAlmostSparses[k] ) )
       k += 1
 
       if i >= nBatches-1:
         break
 
-  return ( costs, groupSparses )
+  return ( costs, groupSparses, groupAlmostSparses )
 
 
 def trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learningRate ):
@@ -938,21 +962,23 @@ def trainWithSubGradDescentLS( net, criterion, params ):
 class Net(nn.Module):
   def __init__(self):
     super(Net, self).__init__()
-    self.conv1 = nn.Conv2d( 3, 30, 3 )   # inChannels, outChannels, kSize
-    self.conv2 = nn.Conv2d( 30, 30, 3 )
-    self.conv3 = nn.Conv2d( 30, 20, 3 )
-    self.fc1 = nn.Linear( 20 * 6 * 6, 120 )   # inChannels, outChannels
-    self.fc2 = nn.Linear( 120, 80 )
-    self.fc3 = nn.Linear( 80, 10 )
+    self.conv1 = nn.Conv2d( 3, 300, 5 )   # inChannels, outChannels, kSize
+    self.conv2 = nn.Conv2d( 300, 200, 3 )
+    self.conv3 = nn.Conv2d( 200, 100, 3 )
+    self.fc1 = nn.Linear( 100 * 2 * 2, 500 )   # inChannels, outChannels
+    self.fc2 = nn.Linear( 500, 400 )
+    self.fc3 = nn.Linear( 400, 200 )
+    self.fc4 = nn.Linear( 200, 10 )
 
   def forward(self, x):
-    x = F.softplus( self.conv1(x), beta=100 )
+    x = F.avg_pool2d( F.softplus( self.conv1(x), beta=100 ), 2, 2 )
     x = F.avg_pool2d( F.softplus( self.conv2(x), beta=100 ), 2, 2 )
     x = F.avg_pool2d( F.softplus( self.conv3(x), beta=100 ), 2, 2 )
-    x = x.view( -1, 20 * 6 * 6 )  # converts matrix to vector
+    x = x.view( -1, 100 * 2 * 2 )  # converts matrix to vector
     x = F.softplus( self.fc1(x), beta=100 )
     x = F.softplus( self.fc2(x), beta=100 )
-    x = self.fc3( x )
+    x = F.softplus( self.fc3(x), beta=100 )
+    x = self.fc4( x )
     x = F.log_softmax( x, dim=1 )
     return x
 
@@ -976,7 +1002,7 @@ class Params:
   datacase = 0
   momentum = 0.0
   nBatches = 1000000
-  nEpochs = 100
+  nEpochs = 50
   printEvery = 1
   regParam_normL1 = 1e2
   regParam_normL2L1 = 1e2
@@ -1033,8 +1059,8 @@ if __name__ == '__main__':
 
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
-  (costs,groupSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
-  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
+  #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
+  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
 
   #L2,L1/2 norm regularization
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=0.1 )
@@ -1043,16 +1069,23 @@ if __name__ == '__main__':
 
   testAccuracy = findTestAccuracy( net, testloader )
 
-  with open('trainWithStochProxGradDescent_regL2L1Norm_0pt1.pkl', 'wb') as f:
-    pickle.dump( (params, net, testAccuracy, costs0pt1, groupSparses0pt1), f)
+  with open( 'trainWithStochProxGradDescent_regL2L1Norm_0pt1.pkl', 'wb') as f:
+    pickle.dump( [ testAccuracy, costs, groupSparses ], f )
+  torch.save( net.state_dict(), 'trainWithStochProxGradDescent_regL2L1Norm_0pt1.net' )
 
-  plt.plot( costs0pt1 )
-  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 0.1')
-  plt.show()
+  #with open( 'trainWithStochProxGradDescent_regL2L1Norm_0pt1.pkl', 'rb' ) as f:
+  #  testAccuracy, costs, groupSparses = pickle.load( f )
+  #net.load_state_dict( torch.load( 'trainWithStochProxGradDescent_regL2L1Norm_0pt1.net' ) )
 
-  plt.plot( groupSparses0pt1 )
-  plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 0.1')
-  plt.show()
+
+
+  #plt.plot( costs )
+  #plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 0.1')
+  #plt.show()
+
+  #plt.plot( groupSparses )
+  #plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 0.1')
+  #plt.show()
 
 
 
