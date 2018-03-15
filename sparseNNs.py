@@ -229,8 +229,8 @@ def printLayerNames(net):
 def proxL2L1( net, t ):
   for thisMod in net.modules():
     if hasattr( thisMod, 'weight'):
-      neurWeight = thisMod.weight.data.numpy()
-      neurBias = thisMod.bias.data.numpy()
+      neurWeight = thisMod.weight.data.cpu().numpy()
+      neurBias = thisMod.bias.data.cpu().numpy()
       if isinstance( thisMod, torch.nn.modules.linear.Linear ):
         for n in range(0,len(neurBias)):
           thisData = neurWeight[n,:]
@@ -261,7 +261,7 @@ def proxL2L1( net, t ):
 
 
 def proxL2LHalf(net,t):
-  for thisMod in net.modules()
+  for thisMod in net.modules():
     if hasattr( thisMod, 'weight' ):
       neurWeight = thisMod.weight.data.numpy()
       neurBias = thisMod.bias.data.numpy()
@@ -530,6 +530,8 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
 
     for i, data in enumerate( trainloader, 0 ):
       inputs, labels = data
+      if params.cuda:
+        inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
       inputs, labels = Variable(inputs), Variable(labels)
 
       # Calculate the gradient using just a minibatch
@@ -1009,6 +1011,7 @@ class Net(nn.Module):
 # Parameters for this code
 class Params:
   batchSize = 500
+  cuda = 0
   datacase = 0
   momentum = 0.0
   nBatches = 1000000
@@ -1029,11 +1032,13 @@ if __name__ == '__main__':
   params = Params()
   torch.manual_seed( params.seed )
 
-  (trainset, trainloader, testset, testloader, classes) = loadData( \
+  params.cuda = torch.cuda.is_available()
+  if params.cuda: torch.cuda.manual_seed( params.seed )
+
+  ( trainset, trainloader, testset, testloader, classes ) = loadData( \
     params.datacase, params.batchSize, params.shuffle )
 
-  net = Net()  # this is my model; it has parameters
-
+  net = Net.cuda() if params.cuda else Net()
 
 
   # get some random training images
