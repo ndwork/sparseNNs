@@ -328,15 +328,24 @@ def showTestResults( net, testloader ):
     print('Accuracy of %5s : %2d %%' % ( classes[i], 100 * class_correct[i] / class_total[i]))
 
 
-def softThreshTwoWeights( m, tConv, tLinear ):
+def softThreshTwoWeights( net, tConv, tLinear ):
   # Apply a soft threshold to the weights of a nn.Module object
   # Applies one weight to the convolutional layers and another to the fully connected layers
-  if isinstance( m, torch.nn.modules.conv.Conv2d ):
-    m.weight.data = torch.sign(m.weight.data) * torch.clamp( torch.abs(m.weight.data) - tConv, min=0 )
-    m.bias.data = torch.sign(m.bias.data) * torch.clamp( torch.abs(m.bias.data) - tConv, min=0 )
-  elif isinstance( m, torch.nn.modules.linear.Linear ):
-    m.weight.data = torch.sign(m.weight.data) * torch.clamp( torch.abs(m.weight.data) - tLinear, min=0 )
-    m.bias.data = torch.sign(m.bias.data) * torch.clamp( torch.abs(m.bias.data) - tLinear, min=0 )
+  for thisMod in net.modules():
+    if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
+      if hasattr( thisMod, 'weight' ):
+        thisMod.weight.data = torch.sign(thisMod.weight.data) * \
+          torch.clamp( torch.abs(thisMod.weight.data) - tConv, min=0 )
+      if hasattr(m, 'bias'):
+        thisMod.bias.data = torch.sign(thisMod.bias.data) * \
+          torch.clamp( torch.abs(thisMod.bias.data) - tConv, min=0 )
+    elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
+      if hasattr( thisMod, 'weight' ):
+        thisMod.weight.data = torch.sign(thisMod.weight.data) * \
+          torch.clamp( torch.abs(thisMod.weight.data) - tLinear, min=0 )
+      if hasattr(m, 'bias'):
+        thisMod.bias.data = torch.sign(thisMod.bias.data) * \
+          torch.clamp( torch.abs(thisMod.bias.data) - tLinear, min=0 )
 
 
 def softThreshWeights( net, t ):
