@@ -124,7 +124,7 @@ def loadData( datacase=0, batchSize=100, shuffle=True ):
 
   mainDataDir = '/Volumes/NDWORK128GB/cs230Data/'
   if not os.path.isdir(mainDataDir):
-    mainDataDir = 'Volumes/Seagate2TB/Data/'
+    mainDataDir = '/Volumes/Seagate2TB/Data/'
   if not os.path.isdir(mainDataDir):
     mainDataDir = './data'
   if not os.path.isdir(mainDataDir):
