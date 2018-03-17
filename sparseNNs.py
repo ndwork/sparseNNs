@@ -140,28 +140,28 @@ def loadData( datacase=0, batchSize=100, shuffle=True ):
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
     trainset = torchvision.datasets.CIFAR10( root=dataDir, train=True, download=True, transform=transform )
-    trainloader = torch.utils.data.DataLoader( trainset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
+    trainLoader = torch.utils.data.DataLoader( trainset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
 
     testset = torchvision.datasets.CIFAR10( root=dataDir, train=False, download=True, transform=transform )
-    testloader = torch.utils.data.DataLoader( testset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
+    testLoader = torch.utils.data.DataLoader( testset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
 
     classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
-    return (trainset, trainloader, testset, testloader, classes)
+    return (trainset, trainLoader, testset, testLoader, classes)
 
   elif datacase == 1:
     dataDir = mainDataDir + '/mnist'
 
     trans = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (1.0,))])
     trainset = torchvision.datasets.MNIST( root=dataDir, train=True, download=True, transform=transform )
-    trainloader = torch.utils.data.DataLoader( trainset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
+    trainLoader = torch.utils.data.DataLoader( trainset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
 
     testset = torchvision.datasets.MNIST( root=dataDir, train=False, download=True, transform=transform )
-    testloader = torch.utils.data.DataLoader( testset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
+    testLoader = torch.utils.data.DataLoader( testset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
 
     classes = ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
 
-    return (trainset, trainloader, testset, testloader, classes)
+    return (trainset, trainLoader, testset, testLoader, classes)
 
   elif datacase == 2:
     dataDir = mainDataDir = '/stl10'
@@ -172,14 +172,14 @@ def loadData( datacase=0, batchSize=100, shuffle=True ):
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
     trainset = torchvision.datasets.STL10( root=dataDir, train=True, download=True, transform=transform )
-    trainloader = torch.utils.data.DataLoader( trainset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
+    trainLoader = torch.utils.data.DataLoader( trainset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
 
     testset = torchvision.datasets.STL10( root=dataDir, train=False, download=True, transform=transform )
-    testloader = torch.utils.data.DataLoader( testset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
+    testLoader = torch.utils.data.DataLoader( testset, batch_size=batchSize, shuffle=shuffle, num_workers=2 )
 
     classes = ('airplane', 'bird', 'car', 'cat', 'deer', 'dog', 'horse', 'monkey', 'ship', 'truck')
 
-    return (trainset, trainloader, testset, testloader, classes)
+    return (trainset, trainLoader, testset, testLoader, classes)
 
   else:
     print( 'Error: incorrect datacase entered' )
@@ -400,7 +400,7 @@ def trainWithAdam( dataLoader, net, criterion, params, learningRate ):
       optimizer.step()
 
       if i <= params.printEvery+1:
-        testAccuracy = findAccuracy( net, testloader, params.cuda )
+        testAccuracy = findAccuracy( net, testLoader, params.cuda )
         print( '[%d,%d] cost: %.3f,  group sparsity: %.3f,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
       else:
@@ -615,7 +615,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
 
       if k % params.printEvery == params.printEvery-1:
         if i <= params.printEvery+1:
-          testAccuracy = findAccuracy( net, testloader, params.cuda )
+          testAccuracy = findAccuracy( net, testLoader, params.cuda )
           print( '[%d,%d] cost: %.3f,  group sparsity: %d,  testAccuracy: %.3f%%' % \
             ( epoch+1, i+1, costs[k], groupSparses[k], testAccuracy*100 ) )
         else:
@@ -708,7 +708,7 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
       optimizer.step()
 
       if i <= params.printEvery+1:
-        testAccuracy = findAccuracy( net, testloader, params.cuda )
+        testAccuracy = findAccuracy( net, testLoader, params.cuda )
         print( '[%d,%d] cost: %.3f,  group sparsity: %d,  testAccuracy: %d%%' % \
           ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
       else:
@@ -1070,7 +1070,7 @@ class Net(nn.Module):
 # How can I change the weights (e.g. with softthresh)?  https://discuss.pytorch.org/t/how-to-modify-weights-of-layers-in-resnet/2867
 # How do I change the network to have X layers with Y nodes in each layer?
 # How do I include a softmax as the final layer?  What if I wanted just a linear output (for all real numbers)?
-# What are trainloader, testloader?  How can I use other datasets?
+# What are trainLoader, testLoader?  How can I use other datasets?
   # Look at "Classifying Images of Hand Signs" to make dataset and dataLoader objects
 # Why doesn't the example show the CIFAR10 images when running using PyCharm (only shows in debug mode)?
 # Why doesn't the example show images when running from the command line?
@@ -1104,7 +1104,7 @@ if __name__ == '__main__':
   params.cuda = torch.cuda.is_available()
   if params.cuda: torch.cuda.manual_seed( params.seed )
 
-  ( trainset, trainloader, testset, testloader, classes ) = loadData( \
+  ( trainset, trainLoader, testset, testLoader, classes ) = loadData( \
     params.datacase, params.batchSize, params.shuffle )
 
   net = Net()
@@ -1112,7 +1112,7 @@ if __name__ == '__main__':
 
 
   # get some random training images
-  #dataiter = iter( trainloader )
+  #dataiter = iter( trainLoader )
   #images, labels = dataiter.next()
   #imshow( torchvision.utils.make_grid(images) )  # show images
   #print(' '.join('%5s' % classes[labels[j]] for j in range(4)))  # print labels
@@ -1153,8 +1153,8 @@ if __name__ == '__main__':
   #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=1.0 )
 
 
-  trainAccuracy = findAccuracy( net, trainloader, params.cuda )
-  testAccuracy = findAccuracy( net, testloader, params.cuda )
+  trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
+  testAccuracy = findAccuracy( net, testLoader, params.cuda )
 
   with open( 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'wb') as f:
     pickle.dump( [ trainAccuracy, testAccuracy, costs, groupSparses ], f )
@@ -1177,12 +1177,12 @@ if __name__ == '__main__':
 
 
   print("Test Results:")
-  showResults( net, testloader, params.cuda )
+  showResults( net, testLoader, params.cuda )
 
   print("Train Results:")
-  showResults( net, trainloader, params.cuda )
+  showResults( net, trainLoader, params.cuda )
 
-  dataiter = iter(testloader)
+  dataiter = iter(testLoader)
   images, labels = dataiter.next()
 
   # print images
