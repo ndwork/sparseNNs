@@ -89,7 +89,6 @@ def findNumWeights( net ):
   nWeights = 0
   for p in net.parameters():
     nWeights += np.prod( list(p.size()) )
-    print( nWeights )
   return nWeights
 
 
@@ -617,8 +616,8 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
       if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
-        print( '[%d,%d] cost: %.3f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
-          ( epoch+1, i+1, costs[k], trainAccuracy*100, testAccuracy*100 ) )
+        print( '[%d,%d] cost: %.3f,  regLoss: %.3f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+          ( epoch+1, i+1, costs[k], regLoss, trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1:
         print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
       k += 1
