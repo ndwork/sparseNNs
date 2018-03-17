@@ -45,10 +45,10 @@ def crossEntropyLoss( outputs, labels ):
   return -torch.sum(outputs[range(num_examples), labels])/num_examples
 
 
-def determineTrainingError( net, trainloader ):
+def determineError( net, dataLoader ):
   # Does not include regularization
   loss = 0
-  for j, jData in enumerate( trainloader, 0 ):
+  for j, jData in enumerate( dataLoader, 0 ):
     jInputs, jLabels = jData
     jInputs, jLabels = Variable(jInputs), Variable(jLabels)
     jOutputs = net( jInputs )
@@ -372,7 +372,7 @@ def softThreshWeights( net, t ):
         torch.clamp( torch.abs(thisMod.bias.data) - t, min=0 )
 
 
-def trainWithAdam( net, criterion, params, learningRate ):
+def trainWithAdam( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   momentum = params.momentum
   nBatches = params.nBatches
@@ -413,7 +413,7 @@ def trainWithAdam( net, criterion, params, learningRate ):
   return costs
 
 
-def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
+def trainWithProxGradDescent_regL1Norm( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   nBatches = params.nBatches
   printEvery = params.printEvery
@@ -428,7 +428,7 @@ def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     optimizer.zero_grad()
-    for i, data in enumerate( trainloader, 0 ):
+    for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
 
@@ -464,7 +464,7 @@ def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
   return ( costs, sparses )
 
 
-def trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate ):
+def trainWithProxGradDescent_regL2L1Norm( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   nBatches = params.nBatches
   printEvery = params.printEvery
@@ -479,7 +479,7 @@ def trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     optimizer.zero_grad()
-    for i, data in enumerate( trainloader, 0 ):
+    for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
 
@@ -516,7 +516,7 @@ def trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate )
   return ( costs, groupSparses )
 
 
-def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
+def trainWithStochProxGradDescent_regL1Norm( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   nBatches = params.nBatches
   regParam = params.regParam_normL1
@@ -525,11 +525,11 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRat
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
 
   k = 0
-  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
-  sparses = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
+  sparses = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
-    for i, data in enumerate( trainloader, 0 ):
+    for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
 
@@ -569,7 +569,7 @@ def trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRat
   return ( costs, sparses )
 
 
-def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate ):
+def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   nBatches = params.nBatches
   regParam = params.regParam_normL2L1
@@ -578,11 +578,11 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
 
   k = 0
-  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
-  groupSparses = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
+  groupSparses = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
-    for i, data in enumerate( trainloader, 0 ):
+    for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       if params.cuda:
         inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
@@ -610,7 +610,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
           regLoss = regLoss + np.square( np.sum( neurWeight * neurWeight ) + np.sum( neurBias * neurBias ) )
       regLoss = regLoss * regParam/nWeights
       loss = mainLoss + regLoss
-      costs[k] = mainLoss.data[0] * len(trainloader) + regLoss
+      costs[k] = mainLoss.data[0] * len(dataLoader) + regLoss
       groupSparses[k] = findNumDeadNeurons( net )
 
       if k % params.printEvery == params.printEvery-1:
@@ -629,7 +629,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
   return ( costs, groupSparses )
 
 
-def trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learningRate ):
+def trainWithStochProxGradDescent_regL2LHalfNorm( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   nBatches = params.nBatches
   regParam = params.regParam_normL2L1
@@ -638,11 +638,11 @@ def trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learni
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
 
   k = 0
-  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
-  groupSparses = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
+  groupSparses = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
-    for i, data in enumerate( trainloader, 0 ):
+    for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
 
@@ -679,7 +679,7 @@ def trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learni
   return ( costs, groupSparses )
 
 
-def trainWithStochSubGradDescent( net, criterion, params, learningRate ):
+def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   momentum = params.momentum
   nBatches = params.nBatches
@@ -721,7 +721,7 @@ def trainWithStochSubGradDescent( net, criterion, params, learningRate ):
   return costs
 
 
-def trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate ):
+def trainWithStochSubGradDescent_regL1Norm( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   momentum = params.momentum
   nBatches = params.nBatches
@@ -734,11 +734,11 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate
   nWeights = findNumWeights(net)
 
   k = 0
-  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
-  sparses = [None] * (nEpochs * np.min([len(trainloader), nBatches]))
+  costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
+  sparses = [None] * (nEpochs * np.min([len(dataLoader), nBatches]))
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
-    for i, data in enumerate( trainloader, 0 ):
+    for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
 
@@ -767,7 +767,7 @@ def trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate
   return (costs,sparses)
 
 
-def trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate ):
+def trainWithStochSubGradDescent_regL2L1Norm( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   momentum = params.momentum
   nBatches = params.nBatches
@@ -780,12 +780,12 @@ def trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRa
   nWeights = findNumWeights(net)
 
   k = 0
-  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
-  groupSparses = [None] * (nEpochs * np.min([len(trainloader), nBatches]))
-  groupAlmostSparses = [None] * (nEpochs * np.min([len(trainloader), nBatches]))
+  costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
+  groupSparses = [None] * (nEpochs * np.min([len(dataLoader), nBatches]))
+  groupAlmostSparses = [None] * (nEpochs * np.min([len(dataLoader), nBatches]))
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
-    for i, data in enumerate( trainloader, 0 ):
+    for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
 
@@ -832,7 +832,7 @@ def trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRa
   return ( costs, groupSparses, groupAlmostSparses )
 
 
-def trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learningRate ):
+def trainWithStochSubGradDescent_regL2LHalfNorm( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   momentum = params.momentum
   nBatches = params.nBatches
@@ -845,11 +845,11 @@ def trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learnin
   nWeights = findNumWeights(net)
 
   k = 0
-  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
-  groupSparses = [None] * (nEpochs * np.min([len(trainloader), nBatches]))
+  costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
+  groupSparses = [None] * (nEpochs * np.min([len(dataLoader), nBatches]))
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
-    for i, data in enumerate( trainloader, 0 ):
+    for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
 
@@ -897,7 +897,7 @@ def trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learnin
   return ( costs, groupSparses )
 
 
-def trainWithSubGradDescent( net, criterion, params, learningRate ):
+def trainWithSubGradDescent( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   momentum = params.momentum
   nBatches = params.nBatches
@@ -912,7 +912,7 @@ def trainWithSubGradDescent( net, criterion, params, learningRate ):
 
     optimizer.zero_grad()
     loss = 0
-    for i, data in enumerate( trainloader, 0 ):
+    for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
 
@@ -953,7 +953,7 @@ def trainWithSubGradDescentLS( net, criterion, params ):
     # Evaluate the loss function before the gradient descent step
     preLoss = 0
     optimizer.zero_grad()
-    for i, data in enumerate( trainloader, 0 ):
+    for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
 
@@ -972,7 +972,7 @@ def trainWithSubGradDescentLS( net, criterion, params ):
     for paramName, paramValue in net.named_parameters():
       if hasattr( paramValue, 'grad' ):
         thisGrad = multi_getattr( net, paramName+'.grad' )
-        #multi_setattr( net, paramName+'.grad', thisGrad/len(trainloader) )
+        #multi_setattr( net, paramName+'.grad', thisGrad/len(dataLoader) )
 
     # Store the result
     preNet = copy.deepcopy( net )
@@ -996,7 +996,7 @@ def trainWithSubGradDescentLS( net, criterion, params ):
 
       # Evaluate the loss function after the update
       postLoss = 0
-      for i, data in enumerate( trainloader, 0 ):
+      for i, data in enumerate( dataLoader, 0 ):
         inputs, labels = data
         inputs, labels = Variable(inputs), Variable(labels)
 
@@ -1133,24 +1133,24 @@ if __name__ == '__main__':
   criterion = crossEntropyLoss  # Explicit definiton of cross-entropy loss (without softmax)
 
   # noRegularization
-  #costs = trainWithSubGradDescent( net, criterion, params, learningRate=1.0 )
-  costs = trainWithAdam( net, criterion, params, learningRate=1.0 )
-  #costs = trainWithSubGradDescentLS( net, criterion, params, learningRate=1.0 )
-  #costs = trainWithStochSubGradDescent( net, criterion, params, learningRate=1.0 )
+  #costs = trainWithSubGradDescent( dataLoader, net, criterion, params, learningRate=1.0 )
+  costs = trainWithAdam( dataLoader, net, criterion, params, learningRate=1.0 )
+  #costs = trainWithSubGradDescentLS( dataLoader, net, criterion, params, learningRate=1.0 )
+  #costs = trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRate=1.0 )
 
   # L1 norm regularization
-  #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
-  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
-  #(costs, sparses) = trainWithProxGradDescent_regL1Norm(net, criterion, params, learningRate=1.0 )
+  #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( dataLoader, net, criterion, params, learningRate=1.0 )
+  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( dataLoader, net, criterion, params, learningRate=1.0 )
+  #(costs, sparses) = trainWithProxGradDescent_regL1Norm(dataLoader, net, criterion, params, learningRate=1.0 )
 
   # L2,L1 norm regularization
-  #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
-  #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
-  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( dataLoader, net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( dataLoader, net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, params, learningRate=1.0 )
 
   #L2,L1/2 norm regularization
-  #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=1.0 )
-  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( dataLoader, net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( dataLoader, net, criterion, params, learningRate=1.0 )
 
 
   trainAccuracy = findAccuracy( net, trainloader, params.cuda )
