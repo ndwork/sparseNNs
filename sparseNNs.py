@@ -1133,24 +1133,24 @@ if __name__ == '__main__':
   criterion = crossEntropyLoss  # Explicit definiton of cross-entropy loss (without softmax)
 
   # noRegularization
-  #costs = trainWithSubGradDescent( dataLoader, net, criterion, params, learningRate=1.0 )
-  costs = trainWithAdam( dataLoader, net, criterion, params, learningRate=1.0 )
-  #costs = trainWithSubGradDescentLS( dataLoader, net, criterion, params, learningRate=1.0 )
-  #costs = trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRate=1.0 )
+  #costs = trainWithSubGradDescent( trainLoader, net, criterion, params, learningRate=1.0 )
+  costs = trainWithAdam( trainLoader, net, criterion, params, learningRate=1.0 )
+  #costs = trainWithSubGradDescentLS( trainLoader, net, criterion, params, learningRate=1.0 )
+  #costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=1.0 )
 
   # L1 norm regularization
-  #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( dataLoader, net, criterion, params, learningRate=1.0 )
-  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( dataLoader, net, criterion, params, learningRate=1.0 )
-  #(costs, sparses) = trainWithProxGradDescent_regL1Norm(dataLoader, net, criterion, params, learningRate=1.0 )
+  #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( trainLoader, net, criterion, params, learningRate=1.0 )
+  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( trainLoader, net, criterion, params, learningRate=1.0 )
+  #(costs, sparses) = trainWithProxGradDescent_regL1Norm(trainLoader, net, criterion, params, learningRate=1.0 )
 
   # L2,L1 norm regularization
-  #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( dataLoader, net, criterion, params, learningRate=1.0 )
-  #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( dataLoader, net, criterion, params, learningRate=1.0 )
-  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=1.0 )
 
   #L2,L1/2 norm regularization
-  #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( dataLoader, net, criterion, params, learningRate=1.0 )
-  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( dataLoader, net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=1.0 )
 
 
   trainAccuracy = findAccuracy( net, trainloader, params.cuda )
