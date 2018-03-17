@@ -399,12 +399,13 @@ def trainWithAdam( dataLoader, net, criterion, params, learningRate ):
 
       optimizer.step()
 
-      if i <= params.printEvery+1:
-        testAccuracy = findAccuracy( net, testLoader, params.cuda )
-        print( '[%d,%d] cost: %.3f,  testAccuracy: %.3f%%' % \
-          ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
-      else:
-        print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
+      if k % params.printEvery == params.printEvery-1:
+        if i <= params.printEvery+1:
+          testAccuracy = findAccuracy( net, testLoader, params.cuda )
+          print( '[%d,%d] cost: %.3f,  testAccuracy: %.3f%%' % \
+            ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
+        else:
+          print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
       k += 1
 
       if i >= nBatches-1:
