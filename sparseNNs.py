@@ -613,7 +613,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
       costs[k] = mainLoss.data[0] * len(dataLoader) + regLoss
       groupSparses[k] = findNumDeadNeurons( net )
 
-      if k % params.showTestAccuracyEvery = params.showTestAccuracyEvery-1:
+      if k % params.showTestAccuracyEvery == params.showTestAccuracyEvery-1:
         print( '[%d,%d] cost: %.3f,  group sparsity: %d' % \
           ( epoch+1, i+1, costs[k], groupSparses[k] ) )
       elif k % params.printEvery == params.printEvery-1:
