@@ -560,7 +560,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
           regLoss = regLoss + np.square( np.sum( neurWeight * neurWeight ) + np.sum( neurBias * neurBias ) )
       regLoss = regLoss * regParam/nWeights
       loss = mainLoss + regLoss
-      costs[k] = mainLoss.data[0] + regLoss
+      costs[k] = mainLoss.data[0] * len(trainloader) + regLoss
       groupSparses[k] = findNumDeadNeurons( net )
 
       if k % params.printEvery == params.printEvery-1:
@@ -1071,43 +1071,43 @@ if __name__ == '__main__':
   criterion = crossEntropyLoss  # Explicit definiton of cross-entropy loss (without softmax)
 
   # noRegularization
-  #costs = trainWithSubGradDescent( net, criterion, params, learningRate=0.1 )
-  #costs = trainWithSubGradDescentLS( net, criterion, params, learningRate=0.1 )
-  #costs = trainWithStochSubGradDescent( net, criterion, params, learningRate=0.1 )
+  #costs = trainWithSubGradDescent( net, criterion, params, learningRate=1.0 )
+  #costs = trainWithSubGradDescentLS( net, criterion, params, learningRate=1.0 )
+  #costs = trainWithStochSubGradDescent( net, criterion, params, learningRate=1.0 )
 
   # L1 norm regularization
-  #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate=0.1 )
-  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=0.1 )
-  #(costs, sparses) = trainWithProxGradDescent_regL1Norm(net, criterion, params, learningRate=0.1 )
+  #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
+  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( net, criterion, params, learningRate=1.0 )
+  #(costs, sparses) = trainWithProxGradDescent_regL1Norm(net, criterion, params, learningRate=1.0 )
 
   # L2,L1 norm regularization
-  #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
-  #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
-  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=0.1 )
+  #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
+  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
 
   #L2,L1/2 norm regularization
-  #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=0.1 )
-  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=0.1 )
+  #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=1.0 )
 
 
   testAccuracy = findTestAccuracy( net, testloader )
 
-  with open( 'trainWithStochProxGradDescent_regL2L1Norm_0pt1.pkl', 'wb') as f:
+  with open( 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'wb') as f:
     pickle.dump( [ testAccuracy, costs, groupSparses ], f )
-  torch.save( net.state_dict(), 'trainWithStochProxGradDescent_regL2L1Norm_0pt1.net' )
+  torch.save( net.state_dict(), 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.net' )
 
-  #with open( 'trainWithStochProxGradDescent_regL2L1Norm_0pt1.pkl', 'rb' ) as f:
+  #with open( 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'rb' ) as f:
   #  testAccuracy, costs, groupSparses = pickle.load( f )
-  #net.load_state_dict( torch.load( 'trainWithStochProxGradDescent_regL2L1Norm_0pt1.net' ) )
+  #net.load_state_dict( torch.load( 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.net' ) )
 
 
 
   #plt.plot( costs )
-  #plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 0.1')
+  #plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 1.0')
   #plt.show()
 
   #plt.plot( groupSparses )
-  #plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 0.1')
+  #plt.title('Stochastic Proximal Gradient with L2,L1 Regularization 1.0')
   #plt.show()
 
 
