@@ -100,9 +100,9 @@ def findAccuracy( net, dataLoader, cuda ):
     inputs, labels = data
     if cuda:
       inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
-    outputs = net(Variable(inputs))
+    outputs = net( Variable(inputs) )
 
-    predicted = np.argmax( outputs, axis=1 )
+    predicted = np.argmax( outputs.data.cup().numpy(), axis=1 )
     total += labels.size( 0 )
     correct += ( predicted == labels ).sum()
     #_, predicted = torch.max(outputs.data, 1)
@@ -1093,7 +1093,7 @@ class Params:
   regParam_normL2L1 = 1e3
   regParam_normL2Lhalf = 1e3
   seed = 1
-  showTestAccuracyEvery = 20
+  showTestAccuracyEvery = 1
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
   s = 1.25  # Step size scaling parameter (must be greater than 1)
