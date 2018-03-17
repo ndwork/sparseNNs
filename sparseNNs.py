@@ -385,7 +385,7 @@ def trainWithAdam( dataLoader, net, criterion, params, learningRate ):
 
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
-      if cuda:
+      if params.cuda:
         inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
       inputs, labels = Variable(inputs), Variable(labels)
 
@@ -693,7 +693,7 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
 
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
-      if cuda:
+      if params.cuda:
         inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
       inputs, labels = Variable(inputs), Variable(labels)
 
