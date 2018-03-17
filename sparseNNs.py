@@ -1086,7 +1086,7 @@ class Params:
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 100
-  printEvery = 2
+  printEvery = 5
   regParam_normL1 = 1e3
   regParam_normL2L1 = 1e3
   regParam_normL2Lhalf = 1e3
