@@ -230,7 +230,7 @@ def printLayerNames(net):
     print(name)  # prints the names of all the parameters
 
 
-def proxL2L1( net, t ):
+def proxL2L1( net, t, cuda ):
   for thisMod in net.modules():
     if hasattr( thisMod, 'weight'):
       neurWeight = thisMod.weight.data.cpu().numpy()
@@ -260,8 +260,12 @@ def proxL2L1( net, t ):
             neurWeight[n,:,:,:] = 0
             neurBias[n] = 0
 
-      thisMod.weight.data = torch.from_numpy( neurWeight )
-      thisMod.weight.bias = torch.from_numpy( neurBias )
+      if cuda: 
+        thisMod.weight.data = torch.from_numpy( neurWeight ).cuda()
+        thisMod.weight.bias = torch.from_numpy( neurBias ).cuda()
+      else:
+        thisMod.weight.data = torch.from_numpy( neurWeight )
+        thisMod.weight.bias = torch.from_numpy( neurBias )
 
 
 def proxL2LHalf(net,t):
@@ -445,7 +449,7 @@ def trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate )
     optimizer.step()
 
     # Perform a proximal operator update
-    proxL2L1( net, t=learningRate*regParam/nWeights )
+    proxL2L1( net, t=learningRate*regParam/nWeights, cuda=params.cuda )
 
     # Determine the current objective function's value
     mainLoss = criterion( outputs, labels )
@@ -548,7 +552,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
       optimizer.step()
 
       # Perform a proximal operator update
-      proxL2L1( net, t=learningRate*regParam/nWeights )
+      proxL2L1( net, t=learningRate*regParam/nWeights, cuda=params.cuda )
 
       # Determine the current objective function's value
       mainLoss = criterion( outputs, labels )
