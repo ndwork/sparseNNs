@@ -102,7 +102,7 @@ def findAccuracy( net, dataLoader, cuda ):
       inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
     outputs = net( Variable(inputs) )
 
-    _, predicted = torch.max( outputs.data, 1 )
+    _, predicted = torch.max( outputs.data, 1 )  # max along dimension 1
     total += labels.size(0)
     correct += ( predicted == labels ).sum()
 
@@ -1079,7 +1079,7 @@ class Net(nn.Module):
 
 # Parameters for this code
 class Params:
-  batchSize = 2000
+  batchSize = 1000
   cuda = 0
   datacase = 0
   momentum = 0.0
