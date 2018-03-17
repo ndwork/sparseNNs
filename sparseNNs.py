@@ -710,10 +710,9 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
 
       if i <= params.printEvery+1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
-        print( '[%d,%d] cost: %.3f,  group sparsity: %d,  testAccuracy: %d%%' % \
-          ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
+        print( '[%d,%d] cost: %.3f,  testAccuracy: %d%%' % ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
       else:
-        print( '[%d,%d] cost: %.3f,  group sparsity: %d' % ( epoch+1, i+1, costs[k] ) )
+        print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
       k += 1
 
       if i >= nBatches-1:
