@@ -399,13 +399,12 @@ def trainWithAdam( dataLoader, net, criterion, params, learningRate ):
 
       optimizer.step()
 
-      if k % params.printEvery == params.printEvery-1:
-        if i <= params.printEvery+1:
-          testAccuracy = findAccuracy( net, testLoader, params.cuda )
-          print( '[%d,%d] cost: %.3f,  testAccuracy: %.3f%%' % \
-            ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
-        else:
-          print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
+      if k % params.showTestAccuracyEvery == params.showTestAccuracyEvery-1:
+        testAccuracy = findAccuracy( net, testLoader, params.cuda )
+        print( '[%d,%d] cost: %.3f,  testAccuracy: %.3f%%' % \
+          ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
+      else:
+        print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
       k += 1
 
       if i >= nBatches-1:
@@ -1085,11 +1084,12 @@ class Params:
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 1000
-  printEvery = 10
+  printEvery = 1
   regParam_normL1 = 1e3
   regParam_normL2L1 = 1e3
   regParam_normL2Lhalf = 1e3
   seed = 1
+  showTestAccuracyEvery = 10
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
   s = 1.25  # Step size scaling parameter (must be greater than 1)
