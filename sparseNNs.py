@@ -102,7 +102,7 @@ def findAccuracy( net, dataLoader, cuda ):
       inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
     outputs = net( Variable(inputs) )
 
-    predicted = np.argmax( outputs.data.cup().numpy(), axis=1 )
+    predicted = np.argmax( outputs.data.cpu().numpy(), axis=1 )
     total += labels.size( 0 )
     correct += ( predicted == labels ).sum()
     #_, predicted = torch.max(outputs.data, 1)
