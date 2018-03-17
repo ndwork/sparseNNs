@@ -1048,9 +1048,8 @@ class Net(nn.Module):
     self.conv2 = nn.Conv2d( 300, 200, 3 )
     self.conv3 = nn.Conv2d( 200, 100, 3 )
     self.fc1 = nn.Linear( 100 * 2 * 2, 500 )   # inChannels, outChannels
-    self.fc2 = nn.Linear( 500, 400 )
-    self.fc3 = nn.Linear( 400, 200 )
-    self.fc4 = nn.Linear( 200, 10 )
+    self.fc2 = nn.Linear( 500, 200 )
+    self.fc3 = nn.Linear( 200, 10 )
 
   def forward(self, x):
     x = F.avg_pool2d( F.softplus( self.conv1(x), beta=100 ), 2, 2 )
@@ -1059,8 +1058,7 @@ class Net(nn.Module):
     x = x.view( -1, 100 * 2 * 2 )  # converts matrix to vector
     x = F.softplus( self.fc1(x), beta=100 )
     x = F.softplus( self.fc2(x), beta=100 )
-    x = F.softplus( self.fc3(x), beta=100 )
-    x = self.fc4( x )
+    x = self.fc3( x )
     x = F.log_softmax( x, dim=1 )
     return x
 
