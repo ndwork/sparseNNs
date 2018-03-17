@@ -619,7 +619,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
         print( '[%d,%d] cost: %.3f,  regLoss: %.3f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, costs[k], regLoss, trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1:
-        print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
+        print( '[%d,%d] cost: %.3f,  regLoss: %.3f' % ( epoch+1, i+1, costs[k], regLoss ) )
       k += 1
 
       if i >= nBatches-1:
