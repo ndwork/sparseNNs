@@ -1078,18 +1078,18 @@ class Net(nn.Module):
 
 # Parameters for this code
 class Params:
-  batchSize = 50 
+  batchSize = 1000
   cuda = 0
   datacase = 0
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 100
-  printEvery = 50
+  printEvery = 5
   regParam_normL1 = 1e3
   regParam_normL2L1 = 1e3
   regParam_normL2Lhalf = 1e3
   seed = 1
-  showAccuracyEvery = 500
+  showAccuracyEvery = 50
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
   s = 1.25  # Step size scaling parameter (must be greater than 1)
