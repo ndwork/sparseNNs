@@ -92,10 +92,10 @@ def findNumWeights( net ):
   return nWeights
 
 
-def findTestAccuracy( net, testloader, cuda ):
+def findAccuracy( net, dataLoader, cuda ):
   correct = 0
   total = 0
-  for data in testloader:
+  for data in dataLoader:
     inputs, labels = data
     if cuda:
       inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
@@ -317,15 +317,15 @@ def proxL2LHalf(net,t):
       thisMod.weight.bias = torch.from_numpy( thisBias )
 
 
-def showTestResults( net, testloader, cuda ):
+def showResults( net, dataLoader, cuda ):
   # Determine accuracy on test set
 
-  accuracy = findTestAccuracy( net, testloader, cuda )
+  accuracy = findAccuracy( net, dataLoader, cuda )
   print( 'Accuracy of the network on the 10000 test inputs: %d %%' % ( 100 * accuracy ) )
 
   class_correct = list(0. for i in range(10))
   class_total = list(0. for i in range(10))
-  for data in testloader:
+  for data in dataLoader:
     inputs, labels = data
     if cuda:
       inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
@@ -572,8 +572,13 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
       groupSparses[k] = findNumDeadNeurons( net )
 
       if k % params.printEvery == params.printEvery-1:
-        print( '[%d,%d] cost: %.3f,  group sparsity: %d' % \
-          ( epoch+1, i+1, costs[k], groupSparses[k] ) )
+        if i <= params.printEvery+1:
+          testAccuracy = findAccuracy( net, testloader, params.cuda )
+          print( '[%d,%d] cost: %.3f,  group sparsity: %d,  testAccuracy: %d' % \
+            ( epoch+1, i+1, costs[k], groupSparses[k], testAccuracy ) )
+        else:
+          print( '[%d,%d] cost: %.3f,  group sparsity: %d' % \
+            ( epoch+1, i+1, costs[k], groupSparses[k] ) )
       k += 1
 
       if i >= nBatches-1:
@@ -1017,7 +1022,7 @@ class Net(nn.Module):
 # How do I change the network to have X layers with Y nodes in each layer?
 # How do I include a softmax as the final layer?  What if I wanted just a linear output (for all real numbers)?
 # What are trainloader, testloader?  How can I use other datasets?
-  # Look at "Classifying Images of Hand Signs" to make dataset and dataloader objects
+  # Look at "Classifying Images of Hand Signs" to make dataset and dataLoader objects
 # Why doesn't the example show the CIFAR10 images when running using PyCharm (only shows in debug mode)?
 # Why doesn't the example show images when running from the command line?
 
@@ -1031,10 +1036,10 @@ class Params:
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 50
-  printEvery = 1
-  regParam_normL1 = 1e2
-  regParam_normL2L1 = 1e2
-  regParam_normL2Lhalf = 1e2
+  printEvery = 10
+  regParam_normL1 = 1e3
+  regParam_normL2L1 = 1e3
+  regParam_normL2Lhalf = 1e3
   seed = 1
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
@@ -1098,10 +1103,11 @@ if __name__ == '__main__':
   #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=1.0 )
 
 
-  testAccuracy = findTestAccuracy( net, testloader, params.cuda )
+  trainAccuracy = findAccuracy( net, trainloader, params.cuda )
+  testAccuracy = findAccuracy( net, testloader, params.cuda )
 
   with open( 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'wb') as f:
-    pickle.dump( [ testAccuracy, costs, groupSparses ], f )
+    pickle.dump( [ trainAccuracy, testAccuracy, costs, groupSparses ], f )
   torch.save( net.state_dict(), 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.net' )
 
   #with open( 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'rb' ) as f:
@@ -1120,7 +1126,11 @@ if __name__ == '__main__':
 
 
 
-  showTestResults( net, testloader, params.cuda )
+  print("Test Results:")
+  showResults( net, testloader, params.cuda )
+
+  print("Train Results:")
+  showResults( net, trainloader, params.cuda )
 
   dataiter = iter(testloader)
   images, labels = dataiter.next()
