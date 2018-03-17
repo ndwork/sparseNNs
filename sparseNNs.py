@@ -89,6 +89,7 @@ def findNumWeights( net ):
   nWeights = 0
   for p in net.parameters():
     nWeights += np.prod( list(p.size()) )
+    print( nWeights )
   return nWeights
 
 
@@ -371,6 +372,47 @@ def softThreshWeights( net, t ):
         torch.clamp( torch.abs(thisMod.bias.data) - t, min=0 )
 
 
+def trainWithAdam( net, criterion, params, learningRate ):
+  nEpochs = params.nEpochs
+  momentum = params.momentum
+  nBatches = params.nBatches
+
+  optimizer = optim.Adam( net.parameters(), lr=learningRate )
+
+  k = 0
+  costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    for i, data in enumerate( dataLoader, 0 ):
+      inputs, labels = data
+      if cuda:
+        inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      # Calculate the gradient using just a minibatch
+      outputs = net(inputs)
+      loss = criterion(outputs, labels)
+      optimizer.zero_grad()
+      loss.backward()
+
+      costs[k] = loss.data[0] * len(dataLoader)
+
+      optimizer.step()
+
+      if i <= params.printEvery+1:
+        testAccuracy = findAccuracy( net, testloader, params.cuda )
+        print( '[%d,%d] cost: %.3f,  group sparsity: %.3f,  testAccuracy: %.3f%%' % \
+          ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
+      else:
+        print( '[%d,%d] cost: %.3f,  group sparsity: %d' % ( epoch+1, i+1, costs[k] ) )
+      k += 1
+
+      if i >= nBatches-1:
+        break
+
+  return costs
+
+
 def trainWithProxGradDescent_regL1Norm( net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   nBatches = params.nBatches
@@ -574,7 +616,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningR
       if k % params.printEvery == params.printEvery-1:
         if i <= params.printEvery+1:
           testAccuracy = findAccuracy( net, testloader, params.cuda )
-          print( '[%d,%d] cost: %.3f,  group sparsity: %d,  testAccuracy: %d%%' % \
+          print( '[%d,%d] cost: %.3f,  group sparsity: %d,  testAccuracy: %.3f%%' % \
             ( epoch+1, i+1, costs[k], groupSparses[k], testAccuracy*100 ) )
         else:
           print( '[%d,%d] cost: %.3f,  group sparsity: %d' % \
@@ -646,11 +688,13 @@ def trainWithStochSubGradDescent( net, criterion, params, learningRate ):
   #optimizer = optim.Adam( net.parameters(), lr=learningRate )
 
   k = 0
-  costs = [None] * ( nEpochs * np.min([len(trainloader),nBatches]) )
+  costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
-    for i, data in enumerate( trainloader, 0 ):
+    for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
+      if cuda:
+        inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
       inputs, labels = Variable(inputs), Variable(labels)
 
       # Calculate the gradient using just a minibatch
@@ -658,12 +702,17 @@ def trainWithStochSubGradDescent( net, criterion, params, learningRate ):
       loss = criterion(outputs, labels)
       optimizer.zero_grad()
       loss.backward()
-      costs[k] = loss.data[0]
+
+      costs[k] = loss.data[0] * len(dataLoader)
 
       optimizer.step()
 
-      if k % params.printEvery == params.printEvery-1:
-        print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
+      if i <= params.printEvery+1:
+        testAccuracy = findAccuracy( net, testloader, params.cuda )
+        print( '[%d,%d] cost: %.3f,  group sparsity: %d,  testAccuracy: %d%%' % \
+          ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
+      else:
+        print( '[%d,%d] cost: %.3f,  group sparsity: %d' % ( epoch+1, i+1, costs[k] ) )
       k += 1
 
       if i >= nBatches-1:
@@ -1030,13 +1079,13 @@ class Net(nn.Module):
 
 # Parameters for this code
 class Params:
-  batchSize = 500
+  batchSize = 10000
   cuda = 0
   datacase = 0
   momentum = 0.0
   nBatches = 1000000
-  nEpochs = 50
-  printEvery = 10
+  nEpochs = 1000
+  printEvery = 1
   regParam_normL1 = 1e3
   regParam_normL2L1 = 1e3
   regParam_normL2Lhalf = 1e3
@@ -1085,6 +1134,7 @@ if __name__ == '__main__':
 
   # noRegularization
   #costs = trainWithSubGradDescent( net, criterion, params, learningRate=1.0 )
+  costs = trainWithAdam( net, criterion, params, learningRate=1.0 )
   #costs = trainWithSubGradDescentLS( net, criterion, params, learningRate=1.0 )
   #costs = trainWithStochSubGradDescent( net, criterion, params, learningRate=1.0 )
 
@@ -1096,7 +1146,7 @@ if __name__ == '__main__':
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
   #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
-  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( net, criterion, params, learningRate=1.0 )
 
   #L2,L1/2 norm regularization
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=1.0 )
