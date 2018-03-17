@@ -403,7 +403,7 @@ def trainWithAdam( dataLoader, net, criterion, params, learningRate ):
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         print( '[%d,%d] cost: %.3f,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
-      else:
+      elif k % params.printEvery == params.printEvery-1:
         print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
       k += 1
 
@@ -707,10 +707,11 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
 
       optimizer.step()
 
-      if i <= params.printEvery+1:
+      if k % params.showTestAccuracyEvery == params.showTestAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
-        print( '[%d,%d] cost: %.3f,  testAccuracy: %d%%' % ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
-      else:
+        print( '[%d,%d] cost: %.3f,  testAccuracy: %.3f%%' % \
+          ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
+      elif k % params.printEvery == params.printEvery-1:
         print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
       k += 1
 
