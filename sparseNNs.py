@@ -1091,7 +1091,7 @@ class Params:
   regParam_normL2L1 = 1e3
   regParam_normL2Lhalf = 1e3
   seed = 1
-  showAccuracyEvery = 20
+  showAccuracyEvery = 50
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
   s = 1.25  # Step size scaling parameter (must be greater than 1)
