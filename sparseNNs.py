@@ -1081,7 +1081,7 @@ class Params:
   batchSize = 100
   cuda = 0
   datacase = 0
-  learningRate = 0.01
+  learningRate = 0.02
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 100
@@ -1137,11 +1137,11 @@ if __name__ == '__main__':
   #costs = trainWithSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithAdam( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithSubGradDescentLS( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )
+  #costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=0.1 )
 
   # L1 norm regularization
   #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  #(costs,sparses) = trainWithStochProxGradDescent_regL1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+  (costs,sparses) = trainWithStochProxGradDescent_regL1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs, sparses) = trainWithProxGradDescent_regL1Norm(trainLoader, net, criterion, params, learningRate=params.learningRate )
 
   # L2,L1 norm regularization
