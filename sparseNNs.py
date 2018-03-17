@@ -400,7 +400,7 @@ def trainWithAdam( dataLoader, net, criterion, params, learningRate ):
 
       optimizer.step()
 
-      if k % params.showTestAccuracyEvery == params.showTestAccuracyEvery-1:
+      if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         print( '[%d,%d] cost: %.3f,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
@@ -614,7 +614,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
       costs[k] = mainLoss.data[0] * len(dataLoader) + regLoss
       groupSparses[k] = findNumDeadNeurons( net )
 
-      if k % params.showTestAccuracyEvery == params.showTestAccuracyEvery-1:
+      if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         print( '[%d,%d] cost: %.3f,  group sparsity: %d' % \
           ( epoch+1, i+1, costs[k], groupSparses[k] ) )
       elif k % params.printEvery == params.printEvery-1:
@@ -707,10 +707,11 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
 
       optimizer.step()
 
-      if k % params.showTestAccuracyEvery == params.showTestAccuracyEvery-1:
+      if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
-        print( '[%d,%d] cost: %.3f,  testAccuracy: %.3f%%' % \
-          ( epoch+1, i+1, costs[k], testAccuracy*100 ) )
+        trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
+        print( '[%d,%d] cost: %.3f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+          ( epoch+1, i+1, costs[k], trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1:
         print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
       k += 1
@@ -1090,7 +1091,7 @@ class Params:
   regParam_normL2L1 = 1e3
   regParam_normL2Lhalf = 1e3
   seed = 1
-  showTestAccuracyEvery = 20
+  showAccuracyEvery = 20
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
   s = 1.25  # Step size scaling parameter (must be greater than 1)
