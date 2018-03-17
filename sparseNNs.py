@@ -1134,9 +1134,9 @@ if __name__ == '__main__':
 
   # noRegularization
   #costs = trainWithSubGradDescent( trainLoader, net, criterion, params, learningRate=1.0 )
-  costs = trainWithAdam( trainLoader, net, criterion, params, learningRate=1.0 )
+  #costs = trainWithAdam( trainLoader, net, criterion, params, learningRate=1.0 )
   #costs = trainWithSubGradDescentLS( trainLoader, net, criterion, params, learningRate=1.0 )
-  #costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=1.0 )
+  costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=1.0 )
 
   # L1 norm regularization
   #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( trainLoader, net, criterion, params, learningRate=1.0 )
