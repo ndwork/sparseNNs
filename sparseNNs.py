@@ -1079,7 +1079,7 @@ class Net(nn.Module):
 
 # Parameters for this code
 class Params:
-  batchSize = 10000
+  batchSize = 1000
   cuda = 0
   datacase = 0
   momentum = 0.0
