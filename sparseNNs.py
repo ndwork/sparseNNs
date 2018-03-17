@@ -92,12 +92,14 @@ def findNumWeights( net ):
   return nWeights
 
 
-def findTestAccuracy( net, testloader ):
+def findTestAccuracy( net, testloader, cuda ):
   correct = 0
   total = 0
   for data in testloader:
-    images, labels = data
-    outputs = net(Variable(images))
+    inputs, labels = data
+    if cuda:
+      inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
+    outputs = net(Variable(inputs))
     _, predicted = torch.max(outputs.data, 1)
     total += labels.size(0)
     correct += (predicted == labels).sum()
@@ -315,17 +317,19 @@ def proxL2LHalf(net,t):
       thisMod.weight.bias = torch.from_numpy( thisBias )
 
 
-def showTestResults( net, testloader ):
+def showTestResults( net, testloader, cuda ):
   # Determine accuracy on test set
 
-  accuracy = findTestAccuracy( net, testloader )
-  print( 'Accuracy of the network on the 10000 test images: %d %%' % ( 100 * accuracy ) )
+  accuracy = findTestAccuracy( net, testloader, cuda )
+  print( 'Accuracy of the network on the 10000 test inputs: %d %%' % ( 100 * accuracy ) )
 
   class_correct = list(0. for i in range(10))
   class_total = list(0. for i in range(10))
   for data in testloader:
-    images, labels = data
-    outputs = net(Variable(images))
+    inputs, labels = data
+    if cuda:
+      inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
+    outputs = net(Variable(inputs))
     _, predicted = torch.max(outputs.data, 1)
     c = (predicted == labels).squeeze()
     for i in range(4):
@@ -1094,7 +1098,7 @@ if __name__ == '__main__':
   #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( net, criterion, params, learningRate=1.0 )
 
 
-  testAccuracy = findTestAccuracy( net, testloader )
+  testAccuracy = findTestAccuracy( net, testloader, params.cuda )
 
   with open( 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'wb') as f:
     pickle.dump( [ testAccuracy, costs, groupSparses ], f )
@@ -1116,7 +1120,7 @@ if __name__ == '__main__':
 
 
 
-  showTestResults( net, testloader )
+  showTestResults( net, testloader, params.cuda )
 
   dataiter = iter(testloader)
   images, labels = dataiter.next()
