@@ -599,7 +599,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
 
       # Calculate the gradient using just a minibatch
       outputs = net( inputs )
-      loss = torch.mul( criterion( outputs, labels ), 1/params.batchSize )
+      loss = torch.mul( criterion( outputs, labels ), len(dataLoader)/params.batchSize )
       optimizer.zero_grad()
       loss.backward()
 
@@ -607,7 +607,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
       optimizer.step()
 
       # Perform a proximal operator update
-      #proxL2L1( net, t=learningRate*regParam/nWeights, cuda=params.cuda )
+      proxL2L1( net, t=learningRate*regParam/nWeights, cuda=params.cuda )
 
       # Determine the current objective function's value
       mainLoss = torch.mul( criterion( outputs, labels ), 1/params.batchSize )
@@ -717,11 +717,11 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
 
       # Calculate the gradient using just a minibatch
       outputs = net(inputs)
-      loss = torch.mul( criterion(outputs, labels), 1/params.batchSize )
+      loss = torch.mul( criterion(outputs, labels), len(dataLoader)/params.batchSize )
       optimizer.zero_grad()
       loss.backward()
 
-      costs[k] = loss.data[0] * len(dataLoader)
+      costs[k] = loss.data[0]
 
       optimizer.step()
 
@@ -1157,7 +1157,7 @@ if __name__ == '__main__':
   #costs = trainWithSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithAdam( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithSubGradDescentLS( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  #costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=1e3 )
+  costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=1 )
 
   # L1 norm regularization
   #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
