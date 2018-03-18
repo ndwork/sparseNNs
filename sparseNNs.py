@@ -613,16 +613,17 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
           neurBias = thisMod.bias.data.cpu().numpy()
           regLoss += np.sqrt( np.sum( neurWeight * neurWeight ) + np.sum( neurBias * neurBias ) )
       regLoss *= regParam/nWeights
-      costs[k] = mainLoss.data[0] * len(dataLoader) + regLoss
+      costs[k] = mainLoss.data[0] + regLoss
       groupSparses[k] = findNumDeadNeurons( net )
 
       if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
-        print( '[%d,%d] cost: %.3f,  regLoss: %.3f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
-          ( epoch+1, i+1, costs[k], regLoss, trainAccuracy*100, testAccuracy*100 ) )
+        print( '[%d,%d] cost: %.3f,  regLoss: %.3f,  groupSparses %d,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+          ( epoch+1, i+1, costs[k], regLoss, groupSparses[k], trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1:
-        print( '[%d,%d] cost: %.3f,  regLoss: %.3f' % ( epoch+1, i+1, costs[k], regLoss ) )
+        print( '[%d,%d] cost: %.3f,  regLoss: %.3f,  groupSparses %d' % \
+            ( epoch+1, i+1, costs[k], regLoss, groupSparses[k] ) )
       k += 1
 
       if i >= nBatches-1:
@@ -1099,9 +1100,9 @@ class Params:
   nBatches = 1000000
   nEpochs = 100
   printEvery = 100
-  regParam_normL1 = 1e6
-  regParam_normL2L1 = 1e6
-  regParam_normL2Lhalf = 1e6
+  regParam_normL1 = 0e1
+  regParam_normL2L1 = 0e1
+  regParam_normL2Lhalf = 0e1
   seed = 1
   showAccuracyEvery = 2000
   shuffle = False  # Shuffle the data in each minibatch
