@@ -879,18 +879,18 @@ def trainWithStochSubGradDescent_regL2LHalfNorm( dataLoader, net, criterion, par
           neurBias = thisMod.bias
           nNeurons = neurWeight.shape[0]
           for n in range(0,nNeurons):
-            regLoss = regLoss + torch.sqrt( torch.sqrt( \
+            regLoss = regLoss + \
               torch.mul( neurWeight[n,:,:,:].norm(2), neurWeight[n,:,:,:].norm(2) ) + \
-              torch.mul( neurBias[n], neurBias[n] ) ) )
+              torch.mul( neurBias[n], neurBias[n] )
 
         elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
           neurWeight = thisMod.weight
           neurBias = thisMod.bias
           nNeurons = neurWeight.shape[0]
           for n in range(0,nNeurons):
-            regLoss = regLoss + torch.sqrt( torch.sqrt( \
+            regLoss = regLoss + \
               torch.mul( neurWeight[n,:].norm(2), neurWeight[n,:].norm(2) ) + \
-              torch.mul( neurBias[n], neurBias[n] ) ) )
+              torch.mul( neurBias[n], neurBias[n] )
 
       loss = mainLoss + torch.mul( regLoss, regParam/nWeights )
       optimizer.zero_grad()
@@ -1095,7 +1095,7 @@ class Params:
   batchSize = 100
   cuda = 0
   datacase = 0
-  learningRate = 0.1
+  learningRate = 1.0
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 100
@@ -1161,7 +1161,7 @@ if __name__ == '__main__':
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
 
   #L2,L1/2 norm regularization
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=params.learningRate )
