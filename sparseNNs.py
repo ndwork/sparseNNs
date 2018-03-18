@@ -670,7 +670,8 @@ def trainWithStochProxGradDescent_regL2LHalfNorm( dataLoader, net, criterion, pa
         if hasattr( thisMod, 'weight' ):
           neurWeight = thisMod.weight.data.cpu().numpy()
           neurBias = thisMod.bias.data.cpu().numpy()
-          regLoss = regLoss + np.sum( neurWeight * neurWeight  ) + np.sum( neurBias * neurBias )
+          regLoss = regLoss + np.sqrt( np.sqrt( \
+            np.sum( neurWeight * neurWeight  ) + np.sum( neurBias * neurBias ) ) )
       regLoss = regLoss * regParam/nWeights
       loss = mainLoss + regLoss
       costs[k] = loss.data[0]
@@ -879,18 +880,18 @@ def trainWithStochSubGradDescent_regL2LHalfNorm( dataLoader, net, criterion, par
           neurBias = thisMod.bias
           nNeurons = neurWeight.shape[0]
           for n in range(0,nNeurons):
-            regLoss = regLoss + \
-              torch.mul( neurWeight[n,:,:,:].norm(2), neurWeight[n,:,:,:].norm(2) ) + \
-              torch.mul( neurBias[n], neurBias[n] )
+            regLoss = regLoss + torch.sqrt( torch.sqrt( \
+              torch.sum( torch.mul( neurWeight[n,:,:,:].norm(2), neurWeight[n,:,:,:].norm(2) ) ) + \
+              torch.sum( torch.mul( neurBias[n], neurBias[n] ) ) ) )
 
         elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
           neurWeight = thisMod.weight
           neurBias = thisMod.bias
           nNeurons = neurWeight.shape[0]
           for n in range(0,nNeurons):
-            regLoss = regLoss + \
-              torch.mul( neurWeight[n,:].norm(2), neurWeight[n,:].norm(2) ) + \
-              torch.mul( neurBias[n], neurBias[n] )
+            regLoss = regLoss + torch.sqrt( torch.sqrt( \
+              torch.sum( torch.mul( neurWeight[n,:].norm(2), neurWeight[n,:].norm(2) ) ) + \
+              torch.sum( torch.mul( neurBias[n], neurBias[n] ) ) ) )
 
       loss = mainLoss + torch.mul( regLoss, regParam/nWeights )
       optimizer.zero_grad()
