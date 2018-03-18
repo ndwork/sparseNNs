@@ -619,10 +619,10 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
       if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
-        print( '[%d,%d] cost: %.3f,  regLoss: %.3f,  groupSparses %d,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+        print( '[%d,%d] cost: %.3f,  regLoss: %.5f,  groupSparses %d,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, costs[k], regLoss, groupSparses[k], trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1:
-        print( '[%d,%d] cost: %.3f,  regLoss: %.3f,  groupSparses %d' % \
+        print( '[%d,%d] cost: %.3f,  regLoss: %.5f,  groupSparses %d' % \
             ( epoch+1, i+1, costs[k], regLoss, groupSparses[k] ) )
       k += 1
 
