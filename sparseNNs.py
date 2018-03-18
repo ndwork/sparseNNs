@@ -1106,9 +1106,9 @@ class Params:
   nBatches = 1000000
   nEpochs = 100
   printEvery = 10
-  regParam_normL1 = 0e1
-  regParam_normL2L1 = 0e1
-  regParam_normL2Lhalf = 0e1
+  regParam_normL1 = 1e0
+  regParam_normL2L1 = 1e0
+  regParam_normL2Lhalf = 1e0
   seed = 1
   showAccuracyEvery = 200
   shuffle = False  # Shuffle the data in each minibatch
