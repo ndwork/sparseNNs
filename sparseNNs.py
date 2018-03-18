@@ -1105,12 +1105,12 @@ class Params:
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 100
-  printEvery = 100
+  printEvery = 10
   regParam_normL1 = 1e4
   regParam_normL2L1 = 1e4
   regParam_normL2Lhalf = 1e4
   seed = 1
-  showAccuracyEvery = 2000
+  showAccuracyEvery = 200
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
   s = 1.25  # Step size scaling parameter (must be greater than 1)
