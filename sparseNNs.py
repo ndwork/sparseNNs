@@ -611,9 +611,8 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
         if hasattr( thisMod, 'weight' ):
           neurWeight = thisMod.weight.data.cpu().numpy()
           neurBias = thisMod.bias.data.cpu().numpy()
-          regLoss = regLoss + np.sqrt( np.sum( neurWeight * neurWeight ) + np.sum( neurBias * neurBias ) )
-      regLoss = regLoss * regParam/nWeights
-      loss = mainLoss + regLoss
+          regLoss += np.sqrt( np.sum( neurWeight * neurWeight ) + np.sum( neurBias * neurBias ) )
+      regLoss *= regParam/nWeights
       costs[k] = mainLoss.data[0] * len(dataLoader) + regLoss
       groupSparses[k] = findNumDeadNeurons( net )
 
