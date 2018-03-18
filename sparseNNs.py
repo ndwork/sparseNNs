@@ -1095,7 +1095,7 @@ class Params:
   batchSize = 100
   cuda = 0
   datacase = 0
-  learningRate = 1.0
+  learningRate = 0.1
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 100
