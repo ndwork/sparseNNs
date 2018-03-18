@@ -85,6 +85,19 @@ def findNumDeadNeurons( net, thresh=0 ):
   return nDead
 
 
+def findNumNeurons( net ):
+  nNeurons = 0
+  for thisMod in net.modules():
+    if hasattr(thisMod, 'weight'):
+      weightData = thisMod.weight.data.cpu().numpy()
+      if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
+        nNeurons += weightData.shape[0]
+      elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
+        nNeurons += weightData.shape[0]
+
+  return nNeurons
+
+
 def findNumWeights( net ):
   nWeights = 0
   for p in net.parameters():
@@ -610,7 +623,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
       proxL2L1( net, t=learningRate*regParam/nWeights, cuda=params.cuda )
 
       # Determine the current objective function's value
-      mainLoss = torch.mul( criterion( outputs, labels ), 1/params.batchSize )
+      mainLoss = torch.mul( criterion( outputs, labels ), len(dataLoader)/params.batchSize )
       regLoss = 0
       for thisMod in net.modules():
         if hasattr( thisMod, 'weight' ):
@@ -626,7 +639,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
         trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
         print( '[%d,%d] cost: %.6f,  regLoss: %.5f,  groupSparses %d,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, costs[k], regLoss, groupSparses[k], trainAccuracy*100, testAccuracy*100 ) )
-      elif k % params.printEvery == params.printEvery-1:
+      elif k % params.printEvery == params.printEvery-1 or i == 0:
         print( '[%d,%d] cost: %.6f,  regLoss: %.5f,  groupSparses %d' % \
             ( epoch+1, i+1, costs[k], regLoss, groupSparses[k] ) )
       k += 1
@@ -1101,14 +1114,14 @@ class Params:
   batchSize = 1000
   cuda = 0
   datacase = 0
-  learningRate = 0.2
+  learningRate = 10
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 100
   printEvery = 10
-  regParam_normL1 = 1e0
-  regParam_normL2L1 = 1e0
-  regParam_normL2Lhalf = 1e0
+  regParam_normL1 = 1e3
+  regParam_normL2L1 = 1e3
+  regParam_normL2Lhalf = 1e3
   seed = 1
   showAccuracyEvery = 200
   shuffle = False  # Shuffle the data in each minibatch
@@ -1130,6 +1143,8 @@ if __name__ == '__main__':
 
   net = Net()
   net = net.cuda() if params.cuda else net
+
+  print( "Num Neurons: %d" % findNumNeurons( net ) )
 
 
   # get some random training images
@@ -1157,7 +1172,7 @@ if __name__ == '__main__':
   #costs = trainWithSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithAdam( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithSubGradDescentLS( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=1 )
+  #costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=10.0 )
 
   # L1 norm regularization
   #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
@@ -1167,7 +1182,7 @@ if __name__ == '__main__':
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=1e3 )
+  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=10000.0 )
 
   #L2,L1/2 norm regularization
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=params.learningRate )
