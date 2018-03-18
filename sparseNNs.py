@@ -271,51 +271,55 @@ def proxL2L1( net, t, cuda ):
         thisMod.weight.bias = torch.from_numpy( neurBias )
 
 
-def proxL2LHalf(net,t):
+def proxL2LHalf( net, t, cuda ):
   for thisMod in net.modules():
     if hasattr( thisMod, 'weight' ):
       neurWeight = thisMod.weight.data.numpy()
       neurBias = thisMod.bias.data.numpy()
-      if isinstance( m, torch.nn.modules.linear.Linear ):
+      if isinstance( thisMod, torch.nn.modules.linear.Linear ):
         for n in range(0,len(neurBias)):
           thisData = neurWeight[n,:]
-          thisBias = neurBias[:]
+          thisBias = neurBias[n]
           normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
 
           if normData == 0:
-            thisData[:] = 0
-            thisBias[n] = 0
+            neurWeight[:] = 0
+            neurBias[n] = 0
           else :
             alpha = t / np.power( normData, 1.5 )
             if alpha < 2*np.sqrt(6)/9:
               s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
-              thisData = (s*s) * thisData 
-              thisBias = (s*s) * thisBias 
+              neurWeight[n,:] = (s*s) * thisData 
+              neurBias[n] = (s*s) * thisBias 
             else:
-              thisData[:] = 0
-              thisBias[n] = 0
+              neurWeight[:] = 0
+              neurBias[n] = 0
 
       elif isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
         for n in range(0,len(neurBias)):
           thisData = neurWeight[n,:,:,:]
-          thisBias = neurBias[:]
+          thisBias = neurBias[n]
           normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
 
           if normData == 0:
-            thisData[:] = 0
-            thisBias[n] = 0
+            neurWeight[n,:,:,:] = 0
+            neurBias[n] = 0
           else :
             alpha = t / np.power( normData, 1.5 )
             if alpha < 2*np.sqrt(6)/9:
               s = 2 / np.sqrt(3) * np.sin( 1/3 * np.arccos( 3 * np.sqrt(3)/4 * alpha ) + math.pi/2 )
-              thisData = (s*s) * thisData 
-              thisBias = (s*s) * thisBias 
+              neurWeight[n,:,:,:] = (s*s) * thisData 
+              neurBias[n] = (s*s) * thisBias 
             else:
-              thisData[:] = 0
-              thisBias[n] = 0
+              neurWeight[n,:,:,:] = 0
+              neurBias[n] = 0
 
-      thisMod.weight.data = torch.from_numpy( thisData )
-      thisMod.weight.bias = torch.from_numpy( thisBias )
+      if cuda:
+        thisMod.weight.data = torch.from_numpy( neurWeight ).cuda()
+        thisMod.weight.bias = torch.from_numpy( neurBias ).cuda()
+      else:
+        thisMod.weight.data = torch.from_numpy( neurWeight )
+        thisMod.weight.bias = torch.from_numpy( neurBias )
 
 
 def showResults( net, dataLoader, cuda ):
@@ -643,6 +647,8 @@ def trainWithStochProxGradDescent_regL2LHalfNorm( dataLoader, net, criterion, pa
 
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
+      if params.cuda:
+        inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
       inputs, labels = Variable(inputs), Variable(labels)
 
       # Calculate the gradient using just a minibatch
@@ -655,21 +661,28 @@ def trainWithStochProxGradDescent_regL2LHalfNorm( dataLoader, net, criterion, pa
       optimizer.step()
 
       # Perform a proximal operator update
-      net.apply( lambda w: proxL2LHalf( w, t=learningRate*regParam/nWeights ) )
+      net.apply( lambda w: proxL2LHalf( w, t=learningRate*regParam/nWeights, cuda=params.cuda ) )
 
       # Determine the current objective function's value
       mainLoss = criterion( outputs, labels )
       regLoss = 0
-      for W in net.parameters():
-        regLoss = regLoss + W.norm(2)
-      regLoss = torch.mul( regLoss, regParam/nWeights )
+      for thisMod in net.modules():
+        if hasattr( thisMod, 'weight' ):
+          neurWeight = thisMod.weight.data.cpu().numpy()
+          neurBias = thisMod.bias.data.cpu().numpy()
+          regLoss = regLoss + np.sqrt( np.sum( neurWeight * neurWeight  ) + np.sum( neurBias * neurBias ) )
+      regLoss = regLoss * regParam/nWeights
       loss = mainLoss + regLoss
       costs[k] = loss.data[0]
       groupSparses[k] = findNumDeadNeurons( net )
 
-      if k % params.printEvery == params.printEvery-1:
-        print( '[%d,%d] cost: %.3f,  group sparsity: %d' % \
-          ( epoch+1, i+1, costs[k], groupSparses[k] ) )
+      if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
+        testAccuracy = findAccuracy( net, testLoader, params.cuda )
+        trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
+        print( '[%d,%d] cost: %.3f,  regLoss: %.3f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+          ( epoch+1, i+1, costs[k], regLoss, trainAccuracy*100, testAccuracy*100 ) )
+      elif k % params.printEvery == params.printEvery-1:
+        print( '[%d,%d] cost: %.3f,  regLoss: %.3f' % ( epoch+1, i+1, costs[k], regLoss ) )
       k += 1
 
       if i >= nBatches-1:
@@ -851,6 +864,8 @@ def trainWithStochSubGradDescent_regL2LHalfNorm( dataLoader, net, criterion, par
 
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
+      if params.cuda:
+        inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
       inputs, labels = Variable(inputs), Variable(labels)
 
       # Calculate the gradient using just a minibatch
