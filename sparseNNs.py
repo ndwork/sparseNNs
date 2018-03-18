@@ -607,7 +607,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
       optimizer.step()
 
       # Perform a proximal operator update
-      proxL2L1( net, t=learningRate*regParam/nWeights, cuda=params.cuda )
+      #proxL2L1( net, t=learningRate*regParam/nWeights, cuda=params.cuda )
 
       # Determine the current objective function's value
       mainLoss = torch.mul( criterion( outputs, labels ), 1/params.batchSize )
