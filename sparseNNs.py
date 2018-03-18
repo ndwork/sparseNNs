@@ -599,7 +599,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
 
       # Calculate the gradient using just a minibatch
       outputs = net( inputs )
-      loss = criterion( outputs, labels ) / params.batchSize
+      loss = torch.mul( criterion( outputs, labels ), 1/params.batchSize )
       optimizer.zero_grad()
       loss.backward()
 
