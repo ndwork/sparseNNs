@@ -255,7 +255,7 @@ def proxL2L1( net, t, cuda ):
         for n in range(0,len(neurBias)):
           thisData = neurWeight[n,:]
           thisBias = neurBias[n]
-          normData = np.sqrt( np.sum(thisData*thisData) + np.sum(thisBias*thisBias) )
+          normData = np.sqrt( np.sum(thisData*thisData) + thisBias*thisBias )
           if normData > t:
             neurWeight[n,:] = thisData - thisData * t / normData
             neurBias[n] = thisBias - thisBias * t / normData
@@ -1117,8 +1117,8 @@ class Params:
   learningRate = 10
   momentum = 0.0
   nBatches = 1000000
-  nEpochs = 500
-  printEvery = 10
+  nEpochs = 1000
+  printEvery = 5 
   regParam_normL1 = 1e1
   regParam_normL2L1 = 1e1
   regParam_normL2Lhalf = 1e1
@@ -1182,7 +1182,7 @@ if __name__ == '__main__':
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=1.0 )
+  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=0.1 )
 
   #L2,L1/2 norm regularization
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=params.learningRate )
