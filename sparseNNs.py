@@ -350,30 +350,40 @@ def softThreshTwoWeights( net, tConv, tLinear ):
   # Apply a soft threshold to the weights of a nn.Module object
   # Applies one weight to the convolutional layers and another to the fully connected layers
   for thisMod in net.modules():
-    if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
-      if hasattr( thisMod, 'weight' ):
-        thisMod.weight.data = torch.sign(thisMod.weight.data) * \
-          torch.clamp( torch.abs(thisMod.weight.data) - tConv, min=0 )
-      if hasattr(m, 'bias'):
-        thisMod.bias.data = torch.sign(thisMod.bias.data) * \
-          torch.clamp( torch.abs(thisMod.bias.data) - tConv, min=0 )
-    elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
-      if hasattr( thisMod, 'weight' ):
-        thisMod.weight.data = torch.sign(thisMod.weight.data) * \
-          torch.clamp( torch.abs(thisMod.weight.data) - tLinear, min=0 )
-      if hasattr(m, 'bias'):
-        thisMod.bias.data = torch.sign(thisMod.bias.data) * \
-          torch.clamp( torch.abs(thisMod.bias.data) - tLinear, min=0 )
+    if hasattr( thisMod, 'weight' ):
+      neurWeight = thisMod.weight.data.cpu().numpy()
+      neurBias = thisMod.bias.data.cpu().numpy()
+      if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
+        neurWeight = np.sign( neurWeight ) * np.clip( np.abs(neurWeight) - tConv, 0, None )
+        neurBias = np.sign( neurBias ) * np.clip( np.abs(neurBias) - tConv, 0, None )
+      elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
+        neurWeight = np.sign( neurWeight ) * np.clip( np.abs(neurWeight) - tLinear, 0, None )
+        neurBias = np.sign( neurBias ) * np.clip( np.abs(neurBias) - tLinear, 0, None )
+
+      if cuda: 
+        thisMod.weight.data = torch.from_numpy( neurWeight ).cuda()
+        thisMod.bias.data = torch.from_numpy( neurBias ).cuda()
+      else:
+        thisMod.weight.data = torch.from_numpy( neurWeight )
+        thisMod.bias.data = torch.from_numpy( neurBias )
 
 
-def softThreshWeights( net, t ):
+def softThreshWeights( net, t, cuda ):
   for thisMod in net.modules():
     if hasattr( thisMod, 'weight' ):
-      thisMod.weight.data = torch.sign(thisMod.weight.data) * \
-        torch.clamp( torch.abs(thisMod.weight.data) - t, min=0 )
+      neurWeight = thisMod.weight.data.cpu().numpy()
+      neurWeight = np.sign( neurWeight ) * np.clip( np.abs(neurWeight) - t, 0, None )
+      if cuda: 
+        thisMod.weight.data = torch.from_numpy( neurWeight ).cuda()
+      else:
+        thisMod.weight.data = torch.from_numpy( neurWeight )
     if hasattr(m, 'bias'):
-      thisMod.bias.data = torch.sign(thisMod.bias.data) * \
-        torch.clamp( torch.abs(thisMod.bias.data) - t, min=0 )
+      neurBias = thisMod.bias.data.cpu().numpy()
+      neurBias = np.sign( neurBias ) * np.clip( np.abs(neurBias) - t, 0, None )
+      if cuda: 
+        thisMod.bias.data = torch.from_numpy( neurBias ).cuda()
+      else:
+        thisMod.bias.data = torch.from_numpy( neurBias )
 
 
 def trainWithAdam( dataLoader, net, criterion, params, learningRate ):
@@ -1101,9 +1111,9 @@ class Params:
   nBatches = 1000000
   nEpochs = 100
   printEvery = 100
-  regParam_normL1 = 1e3
-  regParam_normL2L1 = 1e3
-  regParam_normL2Lhalf = 1e3
+  regParam_normL1 = 1e4
+  regParam_normL2L1 = 1e4
+  regParam_normL2Lhalf = 1e4
   seed = 1
   showAccuracyEvery = 2000
   shuffle = False  # Shuffle the data in each minibatch
