@@ -728,10 +728,10 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
       if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
-        print( '[%d,%d] cost: %.3f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+        print( '[%d,%d] cost: %.6f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, costs[k], trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1:
-        print( '[%d,%d] cost: %.3f' % ( epoch+1, i+1, costs[k] ) )
+        print( '[%d,%d] cost: %.6f' % ( epoch+1, i+1, costs[k] ) )
       k += 1
 
       if i >= nBatches-1:
@@ -1157,7 +1157,7 @@ if __name__ == '__main__':
   #costs = trainWithSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithAdam( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithSubGradDescentLS( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=1.0 )
+  #costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=1e3 )
 
   # L1 norm regularization
   #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
@@ -1167,7 +1167,7 @@ if __name__ == '__main__':
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=1e3 )
 
   #L2,L1/2 norm regularization
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=params.learningRate )
