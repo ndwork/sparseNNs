@@ -372,17 +372,14 @@ def softThreshWeights( net, t, cuda ):
   for thisMod in net.modules():
     if hasattr( thisMod, 'weight' ):
       neurWeight = thisMod.weight.data.cpu().numpy()
-      neurWeight = np.sign( neurWeight ) * np.clip( np.abs(neurWeight) - t, 0, None )
-      if cuda: 
-        thisMod.weight.data = torch.from_numpy( neurWeight ).cuda()
-      else:
-        thisMod.weight.data = torch.from_numpy( neurWeight )
-    if hasattr(m, 'bias'):
       neurBias = thisMod.bias.data.cpu().numpy()
+      neurWeight = np.sign( neurWeight ) * np.clip( np.abs(neurWeight) - t, 0, None )
       neurBias = np.sign( neurBias ) * np.clip( np.abs(neurBias) - t, 0, None )
       if cuda: 
+        thisMod.weight.data = torch.from_numpy( neurWeight ).cuda()
         thisMod.bias.data = torch.from_numpy( neurBias ).cuda()
       else:
+        thisMod.weight.data = torch.from_numpy( neurWeight )
         thisMod.bias.data = torch.from_numpy( neurBias )
 
 
@@ -552,13 +549,12 @@ def trainWithStochProxGradDescent_regL1Norm( dataLoader, net, criterion, params,
       loss = criterion(outputs, labels)
       optimizer.zero_grad()
       loss.backward()
-      costs[k] = loss.data[0]
 
       # Perform a gradient descent update
       optimizer.step()
 
       # Perform a proximal operator update
-      softThreshWeights( net, learningRate*regParam/nWeights )
+      softThreshWeights( net, learningRate*regParam/nWeights, cuda=params.cuda )
 
       # Determine the current objective function's value
       mainLoss = 0
@@ -569,8 +565,7 @@ def trainWithStochProxGradDescent_regL1Norm( dataLoader, net, criterion, params,
       for W in net.parameters():
         regLoss = regLoss + W.norm(1)
       regLoss = torch.mul( regLoss, regParam/nWeights )
-      loss = mainLoss + regLoss.data[0]
-      costs[k] = loss
+      costs[k] = mainLoss + regLoss.data[0]
       sparses[k] = findNumZeroWeights( net )
 
       if k % params.printEvery == params.printEvery-1:
@@ -1103,7 +1098,7 @@ class Net(nn.Module):
 
 # Parameters for this code
 class Params:
-  batchSize = 100
+  batchSize = 1000
   cuda = 0
   datacase = 0
   learningRate = 0.1
