@@ -650,6 +650,96 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
   return ( costs, groupSparses )
 
 
+def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, params, learningRate=1 ):
+  nEpochs = params.nEpochs
+  nBatches = params.nBatches
+  regParam = params.regParam_normL2L1
+  r = params.r   # step size shrining factor
+  s = params.s   # step size growing factor
+
+  nNeurons = findNumNeurons( net )
+  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+
+  k = 0
+  lastT = learningRate
+  costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
+  groupSparses = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
+  for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    for i, data in enumerate( dataLoader, 0 ):
+      inputs, labels = data
+      if params.cuda:
+        inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
+      inputs, labels = Variable(inputs), Variable(labels)
+
+      # Calculate the gradient using just a minibatch
+      outputs = net( inputs )
+      loss = torch.mul( criterion( outputs, labels ), 1/len(inputs) )
+      optimizer.zero_grad()
+      loss.backward()
+
+      preDict = net.state_dict()
+      t = s * lastT
+      while True:
+        net.load_state_dict( preDict )
+        for param_group in optimizer.param_groups:
+          param_group['lr'] = t
+
+        # Perform a gradient descent update
+        optimizer.step()
+
+        # Perform a proximal operator update
+        proxL2L1( net, t=t*regParam/nNeurons, cuda=params.cuda )
+
+        postOutputs = net( inputs )
+        postLoss = torch.mul( criterion( postOutputs, labels ), 1/len(inputs) )
+
+        normL2Loss = 0
+        dpLoss = 0
+        for paramName, postParamValue in net.named_parameters():
+          preGradArray = postParamValue.grad.data.numpy()  # note that the gradient hasn't been updated,
+                                                           # so this is preGradArray.
+          preValueArray = preDict[ paramName ].numpy()
+          postValueArray = postParamValue.data.numpy()
+          paramDiff = postValueArray - preValueArray
+          dpLoss += np.sum( preGradArray * paramDiff )
+          normL2Loss += np.sum( np.square( paramDiff ) )
+        normL2Loss = normL2Loss / (2*t)
+
+        if postLoss.data[0] <= loss.data[0] + dpLoss + normL2Loss:
+          lastT = t
+          break
+        t *= r
+
+
+      # Determine the current objective function's value
+      mainLoss = torch.mul( criterion( outputs, labels ), 1/len(inputs) )
+      regLoss = 0
+      for thisMod in net.modules():
+        if hasattr( thisMod, 'weight' ):
+          neurWeight = thisMod.weight.data.cpu().numpy()
+          neurBias = thisMod.bias.data.cpu().numpy()
+          regLoss += np.sqrt( np.sum( neurWeight * neurWeight ) + np.sum( neurBias * neurBias ) )
+      regLoss *= regParam/nNeurons
+      costs[k] = mainLoss.data[0] + regLoss
+      groupSparses[k] = findNumDeadNeurons( net )
+
+      if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
+        testAccuracy = findAccuracy( net, testLoader, params.cuda )
+        trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
+        print( '[%d,%d] cost: %.6f,  regLoss: %.5f,  groupSparses %d,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+          ( epoch+1, i+1, costs[k], regLoss, groupSparses[k], trainAccuracy*100, testAccuracy*100 ) )
+      elif k % params.printEvery == params.printEvery-1 or k == 0:
+        print( '[%d,%d] cost: %.6f,  regLoss: %.5f,  groupSparses %d' % \
+            ( epoch+1, i+1, costs[k], regLoss, groupSparses[k] ) )
+      k += 1
+
+      if i >= nBatches-1:
+        break
+
+  return ( costs, groupSparses )
+
+
 def trainWithStochProxGradDescent_regL2LHalfNorm( dataLoader, net, criterion, params, learningRate ):
   nEpochs = params.nEpochs
   nBatches = params.nBatches
@@ -1114,11 +1204,11 @@ class Params:
   batchSize = 200
   cuda = 0
   datacase = 0
-  learningRate = 0.0001
+  learningRate = 0.1
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 1000
-  printEvery = 5 
+  printEvery = 1
   regParam_normL1 = 1e2
   regParam_normL2L1 = 1e2
   regParam_normL2Lhalf = 1e2
@@ -1182,7 +1272,8 @@ if __name__ == '__main__':
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+  (costs,groupSparses) = trainWithStochProxGradDescentLS_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
 
   #L2,L1/2 norm regularization
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=params.learningRate )
