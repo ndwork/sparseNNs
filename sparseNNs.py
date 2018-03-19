@@ -1111,19 +1111,19 @@ class Net(nn.Module):
 
 # Parameters for this code
 class Params:
-  batchSize = 2000
+  batchSize = 200
   cuda = 0
   datacase = 0
-  learningRate = 10
+  learningRate = 0.0001
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 1000
   printEvery = 5 
-  regParam_normL1 = 1e1
-  regParam_normL2L1 = 1e1
-  regParam_normL2Lhalf = 1e1
+  regParam_normL1 = 1e2
+  regParam_normL2L1 = 1e2
+  regParam_normL2Lhalf = 1e2
   seed = 1
-  showAccuracyEvery = 200
+  showAccuracyEvery = 1000
   shuffle = True  # Shuffle the data in each minibatch
   alpha = 0.8
   s = 1.25  # Step size scaling parameter (must be greater than 1)
@@ -1182,7 +1182,7 @@ if __name__ == '__main__':
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=0.1 )
+  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
 
   #L2,L1/2 norm regularization
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=params.learningRate )
