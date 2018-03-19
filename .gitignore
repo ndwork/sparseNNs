@@ -5,3 +5,5 @@
 *.png
 *.swp
 
+.DS_Store
+checkpoints
