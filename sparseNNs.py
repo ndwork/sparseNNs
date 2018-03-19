@@ -335,6 +335,10 @@ def proxL2LHalf( net, t, cuda ):
         thisMod.weight.bias = torch.from_numpy( neurBias )
 
 
+def saveCheckpoint( net, filename ):
+  torch.save( net.state_dict(), filename )
+
+
 def showResults( net, dataLoader, cuda ):
   # Determine accuracy on test set
 
@@ -407,6 +411,9 @@ def trainWithAdam( dataLoader, net, criterion, params, learningRate ):
   costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
+
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       if params.cuda:
@@ -450,6 +457,9 @@ def trainWithProxGradDescent_regL1Norm( dataLoader, net, criterion, params, lear
   costs = [None] * nEpochs
   sparses = [None] * nEpochs
   for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
 
     optimizer.zero_grad()
     for i, data in enumerate( dataLoader, 0 ):
@@ -502,6 +512,9 @@ def trainWithProxGradDescent_regL2L1Norm( dataLoader, net, criterion, params, le
   groupSparses = [None] * nEpochs
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
+
     optimizer.zero_grad()
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
@@ -553,6 +566,9 @@ def trainWithStochProxGradDescent_regL1Norm( dataLoader, net, criterion, params,
   sparses = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
+
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
@@ -603,6 +619,9 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
   costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   groupSparses = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
 
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
@@ -656,6 +675,7 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
   regParam = params.regParam_normL2L1
   r = params.r   # step size shrining factor
   s = params.s   # step size growing factor
+  shrinkIterMax = 1000
 
   nNeurons = findNumNeurons( net )
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
@@ -665,6 +685,9 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
   costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   groupSparses = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
 
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
@@ -680,7 +703,8 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
 
       preDict = net.state_dict()
       t = s * lastT
-      while True:
+      shrinkIter = 0
+      while shrinkIter < shrinkIterMax:
         net.load_state_dict( preDict )
         for param_group in optimizer.param_groups:
           param_group['lr'] = t
@@ -710,6 +734,7 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
           lastT = t
           break
         t *= r
+        shrinkIter += 1
 
 
       # Determine the current objective function's value
@@ -752,6 +777,9 @@ def trainWithStochProxGradDescent_regL2LHalfNorm( dataLoader, net, criterion, pa
   costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   groupSparses = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
 
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
@@ -812,6 +840,9 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
   costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
+
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       if params.cuda:
@@ -860,6 +891,9 @@ def trainWithStochSubGradDescent_regL1Norm( dataLoader, net, criterion, params, 
   sparses = [None] * (nEpochs * np.min([len(dataLoader), nBatches]))
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
+
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       inputs, labels = Variable(inputs), Variable(labels)
@@ -906,6 +940,9 @@ def trainWithStochSubGradDescent_regL2L1Norm( dataLoader, net, criterion, params
   groupSparses = [None] * (nEpochs * np.min([len(dataLoader), nBatches]))
   groupAlmostSparses = [None] * (nEpochs * np.min([len(dataLoader), nBatches]))
   for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
 
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
@@ -971,6 +1008,9 @@ def trainWithStochSubGradDescent_regL2LHalfNorm( dataLoader, net, criterion, par
   groupSparses = [None] * (nEpochs * np.min([len(dataLoader), nBatches]))
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
+
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
       if params.cuda:
@@ -1034,6 +1074,9 @@ def trainWithSubGradDescent( dataLoader, net, criterion, params, learningRate ):
   costs = [None] * nEpochs
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
+
     optimizer.zero_grad()
     loss = 0
     for i, data in enumerate( dataLoader, 0 ):
@@ -1071,6 +1114,9 @@ def trainWithSubGradDescentLS( net, criterion, params ):
   costs = [None] * nEpochs
   k = 0
   for epoch in range(nEpochs):  # loop over the dataset multiple times
+
+    if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
 
     optimizer = optim.SGD( net.parameters(), lr=lastT )
 
@@ -1202,6 +1248,7 @@ class Net(nn.Module):
 # Parameters for this code
 class Params:
   batchSize = 200
+  checkpointDir = 'checkpoints'
   cuda = 0
   datacase = 0
   learningRate = 0.1
@@ -1209,9 +1256,10 @@ class Params:
   nBatches = 1000000
   nEpochs = 1000
   printEvery = 1
-  regParam_normL1 = 1e2
-  regParam_normL2L1 = 1e2
-  regParam_normL2Lhalf = 1e2
+  regParam_normL1 = 3e1
+  regParam_normL2L1 = 3e1
+  regParam_normL2Lhalf = 3e1
+  saveCheckpointEvery = 500  # save state every this many epochs
   seed = 1
   showAccuracyEvery = 1000
   shuffle = True  # Shuffle the data in each minibatch
@@ -1236,6 +1284,8 @@ if __name__ == '__main__':
 
   print( "Num Neurons: %d" % findNumNeurons( net ) )
 
+  if not os.path.isdir( params.checkpointDir ):
+    os.mkdir( params.checkpointDir )
 
   # get some random training images
   #dataiter = iter( trainLoader )
@@ -1272,8 +1322,8 @@ if __name__ == '__main__':
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  (costs,groupSparses) = trainWithStochProxGradDescentLS_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+  #(costs,groupSparses) = trainWithStochProxGradDescentLS_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
 
   #L2,L1/2 norm regularization
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=params.learningRate )
