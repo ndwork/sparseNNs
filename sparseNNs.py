@@ -754,7 +754,7 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
   regParam = params.regParam_normL2L1
   r = params.r   # step size shrining factor
   s = params.s   # step size growing factor
-  minStepSize = 1e-6
+  minStepSize = 1e-7
 
   nNeurons = findNumNeurons( net )
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
@@ -1330,15 +1330,13 @@ class Net(nn.Module):
 
 # Parameters for this code
 class Params:
-  #batchSize = 200
-  batchSize = 5
+  batchSize = 200
   checkpointDir = 'checkpoints'
   cuda = 0
   datacase = 0
   learningRate = 0.001 
   momentum = 0.0
-  #nBatches = 1000000
-  nBatches = 2
+  nBatches = 1000000
   nEpochs = 10000
   printEvery = 1
   regParam_normL1 = 1e2
