@@ -754,7 +754,7 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
   regParam = params.regParam_normL2L1
   r = params.r   # step size shrining factor
   s = params.s   # step size growing factor
-  minStepSize = 1e-7
+  minStepSize = 1e-6
 
   nNeurons = findNumNeurons( net )
   optimizer = optim.SGD( net.parameters(), lr=learningRate )
@@ -801,10 +801,10 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
         normL2Loss = 0
         dpLoss = 0
         for paramName, postParamValue in net.named_parameters():
-          preGradArray = postParamValue.grad.data.numpy()  # note that the gradient hasn't been updated,
+          preGradArray = postParamValue.grad.data.cpu().numpy()  # note that the gradient hasn't been updated,
                                                            # so this is preGradArray.
-          preValueArray = preDict[ paramName ].numpy()
-          postValueArray = postParamValue.data.numpy()
+          preValueArray = preDict[ paramName ].cpu().numpy()
+          postValueArray = postParamValue.data.cpu().numpy()
           paramDiff = postValueArray - preValueArray
           dpLoss += np.sum( preGradArray * paramDiff )
           #normL2Loss += np.sum( np.square( paramDiff ) )
@@ -816,8 +816,8 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
         t *= r
         shrinkIter += 1
 
-        if (shrinkIter-1) % 10 == 9:
-          print( "    Shrink Iter: " + str(shrinkIter) + "  Step size is: " + str(t) )
+        #if (shrinkIter-1) % 10 == 9:
+        #  print( "    Shrink Iter: " + str(shrinkIter) + "  Step size is: " + str(t) )
 
 
       # Determine the current objective function's value
@@ -834,12 +834,11 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
       if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
-        print( '[%d,%d] preLoss: %.6f,  cost: %.6f,  regLoss: %.5f,  groupSparses %d,  stepSize: %.8f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
-          ( epoch+1, i+1, loss.data[0], postLoss.data[0], costs[k], regLoss, groupSparses[k], \
-          thisStepSize, trainAccuracy*100, testAccuracy*100 ) )
+        print( '[%d,%d] preLoss: %.8f,  postLoss: %.8f,  cost: %.6f,  regLoss: %.5f,  groupSparses %d,  stepSize: %.8f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+          ( epoch+1, i+1, loss.data[0], postLoss.data[0], costs[k], regLoss, groupSparses[k], thisStepSize, trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1 or k == 0:
-        print( '[%d,%d] preLoss: %.6f,  postLoss: %.6f,  cost: %.6f,  regLoss: %.5f,  groupSparses %d,  stepSize: %.8f' % \
-            ( epoch+1, i+1, loss.data[0], postLoss.data[0], costs[k], regLoss, groupSparses[k], thisStepSize ) )
+        print( '[%d,%d] preLoss: %.8f,  postLoss: %.8f,  cost: %.6f,  regLoss: %.5f,  groupSparses %d,  stepSize: %.8f' % \
+          ( epoch+1, i+1, loss.data[0], postLoss.data[0], costs[k], regLoss, groupSparses[k], thisStepSize ) )
       k += 1
 
       if i >= nBatches-1:
@@ -1330,7 +1329,7 @@ class Net(nn.Module):
 
 # Parameters for this code
 class Params:
-  batchSize = 200
+  batchSize = 250
   checkpointDir = 'checkpoints'
   cuda = 0
   datacase = 0
@@ -1338,13 +1337,13 @@ class Params:
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 10000
-  printEvery = 1
+  printEvery = 5 
   regParam_normL1 = 1e2
   regParam_normL2L1 = 1e2
   regParam_normL2Lhalf = 1e2
   saveCheckpointEvery = 500  # save state every this many epochs
   seed = 1
-  showAccuracyEvery = 1000
+  showAccuracyEvery = 200
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
   s = 1.5  # Step size scaling parameter (must be greater than 1)
