@@ -1346,7 +1346,7 @@ class Params:
   checkpointDir = 'checkpoints'
   cuda = 0
   datacase = 0
-  learningRate = 0.1 
+  learningRate = 0.01
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 300
@@ -1359,8 +1359,9 @@ class Params:
   showAccuracyEvery = 100
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
-  s = 1.5  # Step size scaling parameter (must be greater than 1)
   r = 0.9  # Backtracking line search parameter (must be between 0 and 1)
+  s = 1.5  # Step size scaling parameter (must be greater than 1)
+  warmStartFile = './results/ssgResults.net'
 
 
 if __name__ == '__main__':
@@ -1375,20 +1376,10 @@ if __name__ == '__main__':
     params.datacase, params.batchSize, params.shuffle )
 
   net = Net()
-#  for thisMod in net.modules():
-#    if not hasattr( thisMod, 'weight' ):
-#      continue
-#    neurWeight = thisMod.weight.data.cpu().numpy()
-#    neurWeight += 2 * params.learningRate * np.sign( neurWeight )
-#    neurBias = thisMod.bias.data.cpu().numpy()
-#    neurBias += 2 * params.learningRate * np.sign( neurBias )
-#    if params.cuda: 
-#      thisMod.weight.data = torch.from_numpy( neurWeight ).cuda()
-#      thisMod.weight.bias = torch.from_numpy( neurBias ).cuda()
-#    else:
-#      thisMod.weight.data = torch.from_numpy( neurWeight )
-#      thisMod.weight.bias = torch.from_numpy( neurBias )
   net = net.cuda() if params.cuda else net
+  if params.warmStartFile is not None:
+    loadCheckpoint( net, params.warmStartFile )
+    
 
   print( "Num Neurons: %d" % findNumNeurons( net ) )
 
@@ -1420,7 +1411,7 @@ if __name__ == '__main__':
   #costs = trainWithSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithAdam( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithSubGradDescentLS( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )  # works with batch size of 1000 and step size of 0.1
+  #costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )  # works with batch size of 1000 and step size of 0.1
 
   # L1 norm regularization
   #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
@@ -1430,7 +1421,7 @@ if __name__ == '__main__':
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm_varyingStepSize( \
   #  trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses,stepSizes) = trainWithStochProxGradDescentLS_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
@@ -1444,7 +1435,7 @@ if __name__ == '__main__':
   testAccuracy = findAccuracy( net, testLoader, params.cuda )
 
   with open( 'results.pkl', 'wb') as f:
-    pickle.dump( [ trainAccuracy, testAccuracy, costs ], f )
+    pickle.dump( [ trainAccuracy, testAccuracy, costs, groupSparses ], f )
   torch.save( net.state_dict(), 'results.net' )
 
   #with open( 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'rb' ) as f:
