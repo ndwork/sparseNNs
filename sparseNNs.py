@@ -632,25 +632,18 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
       saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
 
     for i, data in enumerate( dataLoader, 0 ):
-      inputs, labels = data
+      dataInputs, dataLabels = data
       if params.cuda:
-        inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
-      inputs, labels = Variable(inputs), Variable(labels)
+        dataInputs, dataLabels = dataInputs.cuda(async=True), dataLabels.cuda(async=True)
+      inputs, labels = Variable(dataInputs), Variable(dataLabels)
 
-      # Calculate the gradient using just a minibatch
+      # Estimate the gradient using a single minibatch
       outputs = net( inputs )
       loss = torch.mul( criterion( outputs, labels ), 1/len(inputs) )
       optimizer.zero_grad()
       loss.backward()
 
-      # Perform a gradient descent update
-      optimizer.step()
-
-      # Perform a proximal operator update
-      proxL2L1( net, t=learningRate*regParam/nNeurons, cuda=params.cuda )
-
       # Determine the current objective function's value
-      mainLoss = torch.mul( criterion( outputs, labels ), 1/len(inputs) )
       regLoss = 0
       for thisMod in net.modules():
         if hasattr( thisMod, 'weight' ):
@@ -658,8 +651,13 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
           neurBias = thisMod.bias.data.cpu().numpy()
           regLoss += np.sqrt( np.sum( neurWeight * neurWeight ) + np.sum( neurBias * neurBias ) )
       regLoss *= regParam/nNeurons
-      costs[k] = mainLoss.data[0] + regLoss
+      costs[k] = loss.data[0] + regLoss
       groupSparses[k] = findNumDeadNeurons( net )
+
+      # Determine the current batch accuracy
+      _, predicted = torch.max( outputs.data, 1 )  # max along dimension 1
+      correct = ( predicted == dataLabels ).sum()
+      batchAccuracy = correct / dataLabels.size(0)
 
       if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
@@ -667,9 +665,15 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
         print( '[%d,%d] cost: %.6f,  regLoss: %.5f,  groupSparses %d,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, costs[k], regLoss, groupSparses[k], trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1 or k == 0:
-        print( '[%d,%d] cost: %.6f,  regLoss: %.5f,  groupSparses %d' % \
-            ( epoch+1, i+1, costs[k], regLoss, groupSparses[k] ) )
+        print( '[%d,%d] cost: %.6f,  regLoss: %.5f,  groupSparses: %d,  batchAccuracy: %3f%%' % \
+            ( epoch+1, i+1, costs[k], regLoss, groupSparses[k], batchAccuracy*100 ) )
       k += 1
+
+      # Perform a gradient descent update
+      optimizer.step()
+
+      # Perform a proximal operator update
+      proxL2L1( net, t=learningRate*regParam/nNeurons, cuda=params.cuda )
 
       if i >= nBatches-1:
         break
@@ -754,15 +758,16 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
   regParam = params.regParam_normL2L1
   r = params.r   # step size shrining factor
   s = params.s   # step size growing factor
-  minStepSize = 1e-6
+  minStepSize = 0.01
 
   nNeurons = findNumNeurons( net )
-  optimizer = optim.SGD( net.parameters(), lr=learningRate )
+  #optimizer = optim.SGD( net.parameters(), lr=learningRate )
 
   k = 0
   lastT = learningRate
   costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   groupSparses = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
+  stepSizes = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
@@ -777,6 +782,7 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
       # Calculate the gradient using just a minibatch
       outputs = net( inputs )
       loss = torch.mul( criterion( outputs, labels ), 1/len(inputs) )
+      optimizer = optim.SGD( net.parameters(), lr=lastT )
       optimizer.zero_grad()
       loss.backward()
 
@@ -788,8 +794,9 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
         thisStepSize = max( t, minStepSize )
 
         # Perform a gradient descent update
-        for param_group in optimizer.param_groups:
-          param_group['lr'] = thisStepSize
+        #for param_group in optimizer.param_groups:
+        #  param_group['lr'] = thisStepSize
+        optimizer = optim.SGD( net.parameters(), lr=thisStepSize )
         optimizer.step()
 
         # Perform a proximal operator update
@@ -812,6 +819,7 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
 
         if postLoss.data[0] <= loss.data[0] + dpLoss + normL2Loss or t < minStepSize:
           lastT = thisStepSize
+          stepSizes[k] = thisStepSize
           break
         t *= r
         shrinkIter += 1
@@ -834,17 +842,17 @@ def trainWithStochProxGradDescentLS_regL2L1Norm( dataLoader, net, criterion, par
       if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
-        print( '[%d,%d] preLoss: %.8f,  postLoss: %.8f,  cost: %.6f,  regLoss: %.5f,  groupSparses %d,  stepSize: %.8f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+        print( '[%d,%d] preLoss: %.10f,  postLoss: %.10f,  cost: %.6f,  regLoss: %.5f,  groupSparses %d,  stepSize: %.8f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, loss.data[0], postLoss.data[0], costs[k], regLoss, groupSparses[k], thisStepSize, trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1 or k == 0:
-        print( '[%d,%d] preLoss: %.8f,  postLoss: %.8f,  cost: %.6f,  regLoss: %.5f,  groupSparses %d,  stepSize: %.8f' % \
+        print( '[%d,%d] preLoss: %.10f,  postLoss: %.10f,  cost: %.6f,  regLoss: %.5f,  groupSparses %d,  stepSize: %.8f' % \
           ( epoch+1, i+1, loss.data[0], postLoss.data[0], costs[k], regLoss, groupSparses[k], thisStepSize ) )
       k += 1
 
       if i >= nBatches-1:
         break
 
-  return ( costs, groupSparses )
+  return ( costs, groupSparses, stepSizes )
 
 
 def trainWithStochProxGradDescent_regL2LHalfNorm( dataLoader, net, criterion, params, learningRate ):
@@ -926,14 +934,14 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
       saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
 
     for i, data in enumerate( dataLoader, 0 ):
-      inputs, labels = data
+      dataInputs, dataLabels = data
       if params.cuda:
-        inputs, labels = inputs.cuda(async=True), labels.cuda(async=True)
-      inputs, labels = Variable(inputs), Variable(labels)
+        dataInputs, dataLabels = dataInputs.cuda(async=True), dataLabels.cuda(async=True)
+      inputs, labels = Variable(dataInputs), Variable(dataLabels)
 
-      # Calculate the gradient using just a minibatch
+      # Estimate the gradient using a single minibatch
       outputs = net(inputs)
-      loss = torch.mul( criterion(outputs, labels), len(dataLoader)/params.batchSize )
+      loss = torch.mul( criterion(outputs, labels), 1/params.batchSize )
       optimizer.zero_grad()
       loss.backward()
 
@@ -941,13 +949,18 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
 
       optimizer.step()
 
+      # Determine the current batch accuracy
+      _, predicted = torch.max( outputs.data, 1 )  # max along dimension 1
+      correct = ( predicted == dataLabels ).sum()
+      batchAccuracy = correct / dataLabels.size(0)
+
       if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
         print( '[%d,%d] cost: %.6f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, costs[k], trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1 or k == 0:
-        print( '[%d,%d] cost: %.6f' % ( epoch+1, i+1, costs[k] ) )
+        print( '[%d,%d] cost: %.6f,  batchAccuracy: %.2f%%' % ( epoch+1, i+1, costs[k], batchAccuracy*100 ) )
       k += 1
 
       if i >= nBatches-1:
@@ -1329,21 +1342,21 @@ class Net(nn.Module):
 
 # Parameters for this code
 class Params:
-  batchSize = 250
+  batchSize = 1000
   checkpointDir = 'checkpoints'
   cuda = 0
   datacase = 0
-  learningRate = 0.001 
+  learningRate = 0.1 
   momentum = 0.0
   nBatches = 1000000
-  nEpochs = 10000
-  printEvery = 5 
+  nEpochs = 300
+  printEvery = 5
   regParam_normL1 = 1e2
   regParam_normL2L1 = 1e2
   regParam_normL2Lhalf = 1e2
   saveCheckpointEvery = 500  # save state every this many epochs
   seed = 1
-  showAccuracyEvery = 200
+  showAccuracyEvery = 100
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
   s = 1.5  # Step size scaling parameter (must be greater than 1)
@@ -1362,6 +1375,19 @@ if __name__ == '__main__':
     params.datacase, params.batchSize, params.shuffle )
 
   net = Net()
+#  for thisMod in net.modules():
+#    if not hasattr( thisMod, 'weight' ):
+#      continue
+#    neurWeight = thisMod.weight.data.cpu().numpy()
+#    neurWeight += 2 * params.learningRate * np.sign( neurWeight )
+#    neurBias = thisMod.bias.data.cpu().numpy()
+#    neurBias += 2 * params.learningRate * np.sign( neurBias )
+#    if params.cuda: 
+#      thisMod.weight.data = torch.from_numpy( neurWeight ).cuda()
+#      thisMod.weight.bias = torch.from_numpy( neurBias ).cuda()
+#    else:
+#      thisMod.weight.data = torch.from_numpy( neurWeight )
+#      thisMod.weight.bias = torch.from_numpy( neurBias )
   net = net.cuda() if params.cuda else net
 
   print( "Num Neurons: %d" % findNumNeurons( net ) )
@@ -1394,7 +1420,7 @@ if __name__ == '__main__':
   #costs = trainWithSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithAdam( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #costs = trainWithSubGradDescentLS( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  #costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=10.0 )
+  costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )  # works with batch size of 1000 and step size of 0.1
 
   # L1 norm regularization
   #(costs,sparses) = trainWithStochSubGradDescent_regL1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
@@ -1407,7 +1433,7 @@ if __name__ == '__main__':
   #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm_varyingStepSize( \
   #  trainLoader, net, criterion, params, learningRate=params.learningRate )
-  (costs,groupSparses) = trainWithStochProxGradDescentLS_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+  #(costs,groupSparses,stepSizes) = trainWithStochProxGradDescentLS_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
 
   #L2,L1/2 norm regularization
   #(costs,groupSparses) = trainWithStochSubGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=params.learningRate )
@@ -1417,9 +1443,9 @@ if __name__ == '__main__':
   trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
   testAccuracy = findAccuracy( net, testLoader, params.cuda )
 
-  with open( 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'wb') as f:
-    pickle.dump( [ trainAccuracy, testAccuracy, costs, groupSparses ], f )
-  torch.save( net.state_dict(), 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.net' )
+  with open( 'results.pkl', 'wb') as f:
+    pickle.dump( [ trainAccuracy, testAccuracy, costs ], f )
+  torch.save( net.state_dict(), 'results.net' )
 
   #with open( 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'rb' ) as f:
   #  testAccuracy, costs, groupSparses = pickle.load( f )
