@@ -86,6 +86,42 @@ def findNumDeadNeurons( net, thresh=0 ):
   return nDead
 
 
+def findNumLiveNeuronsInLayers( net, thresh=0 ):
+  nLayers = len( net._modules.items() )
+  nLives = [None] * nLayers
+  for thisName, thisMod in net._modules.items():
+    if not hasattr(thisMod, 'weight'):
+      continue
+
+    layerIndx = net.layerNames.index( thisName )
+
+    weightData = thisMod.weight.data.cpu().numpy()
+    biasData = thisMod.bias.data.cpu().numpy()
+
+    thisLive = 0
+    if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
+      nNeurons = weightData.shape[0]
+      for n in range(0, nNeurons):
+        thisData = weightData[n,:,:,:]
+        thisBias = biasData[n]
+        maxData = np.max( np.absolute( thisData ) )
+        maxBias = np.max( np.absolute( thisBias ) )
+        if np.max([maxData,maxBias]) > thresh:
+          thisLive += 1
+
+    elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
+        nNeurons = weightData.shape[0]
+        for n in range(0, nNeurons):
+          maxData = np.max( np.absolute( weightData[n,:] ) )
+          maxBias = np.max( biasData[n] )
+          if np.max([maxData,maxBias]) > thresh:
+            thisLive += 1
+
+    nLives[ layerIndx ] = thisLive
+
+  return nLives
+
+
 def findNumNeurons( net ):
   nNeurons = 0
   for thisMod in net.modules():
@@ -252,6 +288,19 @@ def multi_setattr(obj, attr, value, default = None):
 def printLayerNames(net):
   for (name,layer) in net._modules.items():
     print(name)  # prints the names of all the parameters
+
+
+def pruneNet( net, thresh=0 ):
+  nLives = findNumLiveNeuronsInLayers( net, thresh=thresh )
+  newNet = smartNet( nLives )
+
+  for thisName, thisMod in net._modules.items():
+    if not hasattr(thisMod, 'weight'):
+      continue
+
+  print("THIS IS NOT FINISHED!!!")
+
+
 
 
 def proxL2L1( net, t, cuda ):
@@ -1304,8 +1353,33 @@ def trainWithSubGradDescentLS( net, criterion, params ):
 
 
 ### Object definitions ###
+class smartNet( nn.Module ):
+  layerNames = [ "conv1", "conv2", "conv3", "fc1", "fc2", "fc3" ]
+
+  def __init__(self,layerSizes):
+    # layerSizes is a list of integers specifying the sizes of the first 5 layers
+    super(Net, self).__init__()
+    self.conv1 = nn.Conv2d( 3, layerSizes[0], 5 )   # inChannels, outChannels, kSize
+    self.conv2 = nn.Conv2d( layerSizes[0], layerSizes[1], 3 )
+    self.conv3 = nn.Conv2d( layerSizes[1], layerSizes[2], 3 )
+    self.fc1 = nn.Linear( layerSizes[2] * 2 * 2, layerSizes[3] )   # inChannels, outChannels
+    self.fc2 = nn.Linear( layerSizes[3], layerSizes[4] )
+    self.fc3 = nn.Linear( layerSizes[4], 10 )
+
+  def forward(self, x):
+    x = F.avg_pool2d( F.softplus( self.conv3(x), beta=100 ), 2, 2 )
+    x = F.avg_pool2d( F.softplus( self.conv1(x), beta=100 ), 2, 2 )
+    x = F.avg_pool2d( F.softplus( self.conv2(x), beta=100 ), 2, 2 )
+    x = x.view( -1, np.prod( x.shape[1:3] ) )  # converts matrix to vector
+    x = F.softplus( self.fc1(x), beta=100 )
+    x = F.softplus( self.fc2(x), beta=100 )
+    x = self.fc3( x )
+    x = F.log_softmax( x, dim=1 )
+    return x
 
 class Net(nn.Module):
+  layerNames = [ "conv1", "conv2", "conv3", "fc1", "fc2", "fc3" ]
+
   def __init__(self):
     super(Net, self).__init__()
     self.conv1 = nn.Conv2d( 3, 300, 5 )   # inChannels, outChannels, kSize
@@ -1351,9 +1425,9 @@ class Params:
   nBatches = 1000000
   nEpochs = 300
   printEvery = 5
-  regParam_normL1 = 1e2
-  regParam_normL2L1 = 1e2
-  regParam_normL2Lhalf = 1e2
+  regParam_normL1 = 0e1
+  regParam_normL2L1 = 0e1
+  regParam_normL2Lhalf = 0e1
   saveCheckpointEvery = 500  # save state every this many epochs
   seed = 1
   showAccuracyEvery = 100
@@ -1361,6 +1435,7 @@ class Params:
   alpha = 0.8
   r = 0.9  # Backtracking line search parameter (must be between 0 and 1)
   s = 1.5  # Step size scaling parameter (must be greater than 1)
+  #warmStartFile = None
   warmStartFile = './results/ssgResults.net'
 
 
@@ -1376,9 +1451,13 @@ if __name__ == '__main__':
     params.datacase, params.batchSize, params.shuffle )
 
   net = Net()
+  #layerSizes = [ 300, 200, 100, 500, 200 ]
+  #net = smartNet( layerSizes )
   net = net.cuda() if params.cuda else net
   if params.warmStartFile is not None:
     loadCheckpoint( net, params.warmStartFile )
+
+  #nLive = findNumLiveNeuronsInLayers( net )
     
 
   print( "Num Neurons: %d" % findNumNeurons( net ) )
@@ -1421,7 +1500,7 @@ if __name__ == '__main__':
   # L2,L1 norm regularization
   #(costs,groupSparses) = trainWithProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses,groupAlmostSparses) = trainWithStochSubGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
-  (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+  #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm_varyingStepSize( \
   #  trainLoader, net, criterion, params, learningRate=params.learningRate )
   #(costs,groupSparses,stepSizes) = trainWithStochProxGradDescentLS_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
@@ -1431,12 +1510,24 @@ if __name__ == '__main__':
   #(costs,groupSparses) = trainWithStochProxGradDescent_regL2LHalfNorm( trainLoader, net, criterion, params, learningRate=params.learningRate )
 
 
-  trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
-  testAccuracy = findAccuracy( net, testLoader, params.cuda )
+  baseCheckpointDir = params.checkpointDir
+  for regPower in range(0,6)
+    params.checkpointDir = baseCheckpointDir + str(regPower)
+    if not os.path.isdir( params.checkpointDir ):
+      os.mkdir( params.checkpointDir )
 
-  with open( 'results.pkl', 'wb') as f:
-    pickle.dump( [ trainAccuracy, testAccuracy, costs, groupSparses ], f )
-  torch.save( net.state_dict(), 'results.net' )
+    params.regParam_normL2L1 = 10 ** regPower
+    (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+
+
+    trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
+    testAccuracy = findAccuracy( net, testLoader, params.cuda )
+
+    with open( 'results' + str(regPower) + '.pkl', 'wb') as f:
+      pickle.dump( [ trainAccuracy, testAccuracy, costs, groupSparses ], f )
+    torch.save( net.state_dict(), 'results' + str(regPower) + 'net' )
+
+
 
   #with open( 'trainWithStochProxGradDescent_regL2L1Norm_1pt0.pkl', 'rb' ) as f:
   #  testAccuracy, costs, groupSparses = pickle.load( f )
