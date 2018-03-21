@@ -331,7 +331,8 @@ def pruneNet( net, cuda, thresh=0 ):
         newMod.weight.data = torch.from_numpy( newWeight )
         newMod.weight.bias = torch.from_numpy( newBias )
 
-  return newNet
+  net = copy.deepcopy( newNet )
+  #return newNet
 
 
 def proxL2L1( net, t, cuda ):
@@ -744,11 +745,11 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
       if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
-        print( '[%d,%d] cost: %.8f,  regLoss: %.8f,  groupSparses %d,  ----------------  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
-          ( epoch+1, i+1, costs[k], regLoss, groupSparses[k], trainAccuracy*100, testAccuracy*100 ) )
+        print( '[%d,%d] nNeurons: %d,  cost: %.8f,  regLoss: %.8f,  groupSparses %d,  ----------------  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+          ( epoch+1, i+1, nNeurons, costs[k], regLoss, groupSparses[k], trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1 or k == 0:
-        print( '[%d,%d] cost: %.8f,  regLoss: %.8f,  groupSparses: %d,  batchAccuracy: %.3f%%' % \
-            ( epoch+1, i+1, costs[k], regLoss, groupSparses[k], batchAccuracy*100 ) )
+        print( '[%d,%d] nNeurons: %d,  cost: %.8f,  regLoss: %.8f,  groupSparses: %d,  batchAccuracy: %.3f%%' % \
+            ( epoch+1, i+1, nNeurons, costs[k], regLoss, groupSparses[k], batchAccuracy*100 ) )
       k += 1
 
       # Perform a gradient descent update
@@ -1039,10 +1040,10 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
       if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
-        print( '[%d,%d] cost: %.6f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
-          ( epoch+1, i+1, costs[k], trainAccuracy*100, testAccuracy*100 ) )
+        print( '[%d,%d] nNeurons: %d,  cost: %.6f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+          ( epoch+1, i+1, nNeurons, costs[k], trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1 or k == 0:
-        print( '[%d,%d] cost: %.6f,  batchAccuracy: %.3f%%' % ( epoch+1, i+1, costs[k], batchAccuracy*100 ) )
+        print( '[%d,%d] nNeurons: %d,  cost: %.6f,  batchAccuracy: %.3f%%' % ( epoch+1, i+1, nNeurons, costs[k], batchAccuracy*100 ) )
       k += 1
 
       if i >= nBatches-1:
@@ -1403,7 +1404,8 @@ class smartNet( nn.Module ):
     x = F.avg_pool2d( F.softplus( self.conv1(x), beta=100 ), 2, 2 )
     x = F.avg_pool2d( F.softplus( self.conv2(x), beta=100 ), 2, 2 )
     x = F.avg_pool2d( F.softplus( self.conv3(x), beta=100 ), 2, 2 )
-    x = x.view( -1, np.prod( x.shape[1:3] ) )  # converts matrix to vector
+    xShape = x.data.cpu().numpy().shape
+    x = x.view( -1, int( np.prod( xShape[1:4] ) ) )  # converts matrix to vector
     x = F.softplus( self.fc1(x), beta=100 )
     x = F.softplus( self.fc2(x), beta=100 )
     x = self.fc3( x )
@@ -1456,7 +1458,7 @@ class Params:
   learningRate = 0.05
   momentum = 0.0
   nBatches = 1000000
-  nEpochs = 300
+  nEpochs = 1000
   printEvery = 5
   regParam_normL1 = 0e1
   regParam_normL2L1 = 0e1
@@ -1497,6 +1499,8 @@ if __name__ == '__main__':
 
   if not os.path.isdir( params.checkpointDir ):
     os.mkdir( params.checkpointDir )
+  if not os.path.isdir( 'results' ):
+    os.mkdir( 'results' )
 
   # get some random training images
   #dataiter = iter( trainLoader )
@@ -1550,12 +1554,17 @@ if __name__ == '__main__':
     if not os.path.isdir( params.checkpointDir ):
       os.mkdir( params.checkpointDir )
 
-    params.regParam_normL2L1 = 10 ** regPower
+    params.regParam_normL2L1 = 2 ** regPower
     #params.learningRate = 5 * 10 ** -(regPower+2)
 
     print( "Working on regPower: " + str(regPower) + ",  regParam: " + str(params.regParam_normL2L1) + ",  learningRate: " + str(params.learningRate) )
 
     (costs,groupSparses,regLosses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+
+    pruneNet( net, params.cuda )
+    nNeurons = findNumNeurons( net )
+    print( "After pruning, the number of neurons is: " + str(nNeurons) )
+    costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )  # works with batch size of 1000 and step size of 0.1
 
     trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
     testAccuracy = findAccuracy( net, testLoader, params.cuda )
