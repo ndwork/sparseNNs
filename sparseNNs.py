@@ -469,7 +469,7 @@ def trainWithAdam( dataLoader, net, criterion, params, learningRate ):
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
-      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch) + '.net' )
+      saveCheckpoint( net, params.checkpointDir + '/checkpoint_' + str(epoch+1) + '.net' )
 
     for i, data in enumerate( dataLoader, 0 ):
       inputs, labels = data
@@ -675,6 +675,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
   k = 0
   costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   groupSparses = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
+  regLosses = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
     if epoch % params.saveCheckpointEvery == params.saveCheckpointEvery-1:
@@ -700,6 +701,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
           neurBias = thisMod.bias.data.cpu().numpy()
           regLoss += np.sqrt( np.sum( neurWeight * neurWeight ) + np.sum( neurBias * neurBias ) )
       regLoss *= regParam/nNeurons
+      regLosses[k] = regLoss
       costs[k] = loss.data[0] + regLoss
       groupSparses[k] = findNumDeadNeurons( net )
 
@@ -711,10 +713,10 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
       if k % params.showAccuracyEvery == params.showAccuracyEvery-1:
         testAccuracy = findAccuracy( net, testLoader, params.cuda )
         trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
-        print( '[%d,%d] cost: %.6f,  regLoss: %.5f,  groupSparses %d,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
+        print( '[%d,%d] cost: %.8f,  regLoss: %.8f,  groupSparses %d,  ----------------  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, costs[k], regLoss, groupSparses[k], trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1 or k == 0:
-        print( '[%d,%d] cost: %.6f,  regLoss: %.5f,  groupSparses: %d,  batchAccuracy: %3f%%' % \
+        print( '[%d,%d] cost: %.8f,  regLoss: %.8f,  groupSparses: %d,  batchAccuracy: %.3f%%' % \
             ( epoch+1, i+1, costs[k], regLoss, groupSparses[k], batchAccuracy*100 ) )
       k += 1
 
@@ -727,7 +729,7 @@ def trainWithStochProxGradDescent_regL2L1Norm( dataLoader, net, criterion, param
       if i >= nBatches-1:
         break
 
-  return ( costs, groupSparses )
+  return ( costs, groupSparses, regLosses )
 
 
 def trainWithStochProxGradDescent_regL2L1Norm_varyingStepSize( dataLoader, net, criterion, params, learningRate ):
@@ -1009,7 +1011,7 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
         print( '[%d,%d] cost: %.6f,  trainAccuracy: %.3f%%,  testAccuracy: %.3f%%' % \
           ( epoch+1, i+1, costs[k], trainAccuracy*100, testAccuracy*100 ) )
       elif k % params.printEvery == params.printEvery-1 or k == 0:
-        print( '[%d,%d] cost: %.6f,  batchAccuracy: %.2f%%' % ( epoch+1, i+1, costs[k], batchAccuracy*100 ) )
+        print( '[%d,%d] cost: %.6f,  batchAccuracy: %.3f%%' % ( epoch+1, i+1, costs[k], batchAccuracy*100 ) )
       k += 1
 
       if i >= nBatches-1:
@@ -1420,7 +1422,7 @@ class Params:
   checkpointDir = 'checkpoints'
   cuda = 0
   datacase = 0
-  learningRate = 0.01
+  learningRate = 0.05
   momentum = 0.0
   nBatches = 1000000
   nEpochs = 300
@@ -1428,15 +1430,16 @@ class Params:
   regParam_normL1 = 0e1
   regParam_normL2L1 = 0e1
   regParam_normL2Lhalf = 0e1
-  saveCheckpointEvery = 500  # save state every this many epochs
+  saveCheckpointEvery = 100  # save state every this many epochs
   seed = 1
-  showAccuracyEvery = 100
+  showAccuracyEvery = 200
   shuffle = False  # Shuffle the data in each minibatch
   alpha = 0.8
   r = 0.9  # Backtracking line search parameter (must be between 0 and 1)
   s = 1.5  # Step size scaling parameter (must be greater than 1)
   #warmStartFile = None
-  warmStartFile = './results/ssgResults.net'
+  #warmStartFile = './results/ssgResults.net'
+  warmStartFile = './results/results0.net'
 
 
 if __name__ == '__main__':
@@ -1511,21 +1514,24 @@ if __name__ == '__main__':
 
 
   baseCheckpointDir = params.checkpointDir
-  for regPower in range(0,6)
+  for regPower in range(0,10):
     params.checkpointDir = baseCheckpointDir + str(regPower)
     if not os.path.isdir( params.checkpointDir ):
       os.mkdir( params.checkpointDir )
 
     params.regParam_normL2L1 = 10 ** regPower
-    (costs,groupSparses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+    #params.learningRate = 5 * 10 ** -(regPower+2)
 
+    print( "Working on regPower: " + str(regPower) + ",  regParam: " + str(params.regParam_normL2L1) + ",  learningRate: " + str(params.learningRate) )
+
+    (costs,groupSparses,regLosses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
 
     trainAccuracy = findAccuracy( net, trainLoader, params.cuda )
     testAccuracy = findAccuracy( net, testLoader, params.cuda )
 
-    with open( 'results' + str(regPower) + '.pkl', 'wb') as f:
-      pickle.dump( [ trainAccuracy, testAccuracy, costs, groupSparses ], f )
-    torch.save( net.state_dict(), 'results' + str(regPower) + 'net' )
+    with open( './results/results' + str(regPower) + '.pkl', 'wb') as f:
+      pickle.dump( [ trainAccuracy, testAccuracy, costs, groupSparses, regLosses ], f )
+    torch.save( net.state_dict(), './results/results' + str(regPower) + '.net' )
 
 
 
