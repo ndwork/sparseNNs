@@ -72,16 +72,14 @@ def findNumDeadNeurons( net, thresh=0 ):
           thisBias = biasData[n]
           maxData = np.max( np.absolute( thisData ) )
           maxBias = np.max( np.absolute( thisBias ) )
-          if np.max([maxData,maxBias]) <= thresh:
-            nDead += 1
+          if np.max([maxData,maxBias]) <= thresh: nDead += 1
 
       elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
           nNeurons = weightData.shape[0]
           for n in range(0, nNeurons):
             maxData = np.max( np.absolute( weightData[n,:] ) )
             maxBias = np.max( biasData[n] )
-            if np.max([maxData,maxBias]) <= thresh:
-              nDead += 1
+            if np.max([maxData,maxBias]) <= thresh: nDead += 1
 
   return nDead
 
@@ -90,10 +88,7 @@ def findNumLiveNeuronsInLayers( net, thresh=0 ):
   nLayers = len( net._modules.items() )
   nLives = [None] * nLayers
   for thisName, thisMod in net._modules.items():
-    if not hasattr(thisMod, 'weight'):
-      continue
-
-    layerIndx = net.layerNames.index( thisName )
+    if not hasattr(thisMod, 'weight'): continue
 
     weightData = thisMod.weight.data.cpu().numpy()
     biasData = thisMod.bias.data.cpu().numpy()
@@ -102,21 +97,20 @@ def findNumLiveNeuronsInLayers( net, thresh=0 ):
     if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
       nNeurons = weightData.shape[0]
       for n in range(0, nNeurons):
-        thisData = weightData[n,:,:,:]
+        thisWeight = weightData[n,:,:,:]
         thisBias = biasData[n]
-        maxData = np.max( np.absolute( thisData ) )
-        maxBias = np.max( np.absolute( thisBias ) )
-        if np.max([maxData,maxBias]) > thresh:
-          thisLive += 1
+        thisMag = np.sqrt( np.sum( thisWeight*thisWeight) + thisBias*thisBias )
+        if thisMag > thresh: thisLive += 1
 
     elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
-        nNeurons = weightData.shape[0]
-        for n in range(0, nNeurons):
-          maxData = np.max( np.absolute( weightData[n,:] ) )
-          maxBias = np.max( biasData[n] )
-          if np.max([maxData,maxBias]) > thresh:
-            thisLive += 1
+      nNeurons = weightData.shape[0]
+      for n in range(0, nNeurons):
+        thisWeight = weightData[n,:]
+        thisBias = biasData[n]
+        thisMag = np.sqrt( np.sum( thisWeight*thisWeight) + thisBias*thisBias )
+        if thisMag > thresh: thisLive += 1
 
+    layerIndx = net.layerNames.index( thisName )
     nLives[ layerIndx ] = thisLive
 
   return nLives
@@ -290,17 +284,52 @@ def printLayerNames(net):
     print(name)  # prints the names of all the parameters
 
 
-def pruneNet( net, thresh=0 ):
+def pruneNet( net, cuda, thresh=0 ):
   nLives = findNumLiveNeuronsInLayers( net, thresh=thresh )
   newNet = smartNet( nLives )
 
-  for thisName, thisMod in net._modules.items():
-    if not hasattr(thisMod, 'weight'):
-      continue
+  for thisName, thisMod in net.named_modules():
+    if not hasattr(thisMod, 'weight'): continue
 
-  print("THIS IS NOT FINISHED!!!")
+    weightData = thisMod.weight.data.cpu().numpy()
+    biasData = thisMod.bias.data.cpu().numpy()
 
+    for newName, newMod in newNet.named_modules():
+      if newName != thisName: continue
 
+      newWeight = newMod.weight.data.cpu().numpy()
+      newBias = newMod.bias.data.cpu().numpy()
+
+      if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
+        nNeurons = weightData.shape[0]
+        newIndx = 0
+        for n in range(0, nNeurons):
+          thisWeight = weightData[n,:,:,:]
+          thisBias = biasData[n]
+          thisMag = np.sqrt( np.sum( thisWeight*thisWeight) + thisBias*thisBias )
+          if thisMag > thresh:
+            newWeight[newIndx,:,:,:] = thisWeight
+            newBias[newIndx] = thisBias
+            newIndx += 1
+
+      elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
+        nNeurons = weightData.shape[0]
+        newIndx = 0
+        for n in range(0, nNeurons):
+          thisWeight = weightData[n,:]
+          thisBias = biasData[n]
+          thisMag = np.sqrt( np.sum( thisWeight*thisWeight) + thisBias*thisBias )
+          if thisMag > thresh:
+            newWeight[newIndx,:] = thisWeight
+            newBias[newIndx] = thisBias
+            newIndx += 1
+
+      if cuda: 
+        newMod.weight.data = torch.from_numpy( newWeight ).cuda()
+        newMod.weight.bias = torch.from_numpy( newBias ).cuda()
+      else:
+        newMod.weight.data = torch.from_numpy( newWeight )
+        newMod.weight.bias = torch.from_numpy( newBias )
 
 
 def proxL2L1( net, t, cuda ):
@@ -1360,7 +1389,7 @@ class smartNet( nn.Module ):
 
   def __init__(self,layerSizes):
     # layerSizes is a list of integers specifying the sizes of the first 5 layers
-    super(Net, self).__init__()
+    super(smartNet, self).__init__()
     self.conv1 = nn.Conv2d( 3, layerSizes[0], 5 )   # inChannels, outChannels, kSize
     self.conv2 = nn.Conv2d( layerSizes[0], layerSizes[1], 3 )
     self.conv3 = nn.Conv2d( layerSizes[1], layerSizes[2], 3 )
@@ -1369,9 +1398,9 @@ class smartNet( nn.Module ):
     self.fc3 = nn.Linear( layerSizes[4], 10 )
 
   def forward(self, x):
-    x = F.avg_pool2d( F.softplus( self.conv3(x), beta=100 ), 2, 2 )
     x = F.avg_pool2d( F.softplus( self.conv1(x), beta=100 ), 2, 2 )
     x = F.avg_pool2d( F.softplus( self.conv2(x), beta=100 ), 2, 2 )
+    x = F.avg_pool2d( F.softplus( self.conv3(x), beta=100 ), 2, 2 )
     x = x.view( -1, np.prod( x.shape[1:3] ) )  # converts matrix to vector
     x = F.softplus( self.fc1(x), beta=100 )
     x = F.softplus( self.fc2(x), beta=100 )
@@ -1437,9 +1466,9 @@ class Params:
   alpha = 0.8
   r = 0.9  # Backtracking line search parameter (must be between 0 and 1)
   s = 1.5  # Step size scaling parameter (must be greater than 1)
-  #warmStartFile = None
+  warmStartFile = None
   #warmStartFile = './results/ssgResults.net'
-  warmStartFile = './results/results0.net'
+  #warmStartFile = './results/results0.net'
 
 
 if __name__ == '__main__':
@@ -1453,15 +1482,14 @@ if __name__ == '__main__':
   ( trainset, trainLoader, testset, testLoader, classes ) = loadData( \
     params.datacase, params.batchSize, params.shuffle )
 
-  net = Net()
-  #layerSizes = [ 300, 200, 100, 500, 200 ]
-  #net = smartNet( layerSizes )
+  #net = Net()
+  layerSizes = [ 300, 200, 100, 500, 200 ]
+  net = smartNet( layerSizes )
   net = net.cuda() if params.cuda else net
   if params.warmStartFile is not None:
     loadCheckpoint( net, params.warmStartFile )
 
-  #nLive = findNumLiveNeuronsInLayers( net )
-    
+  #pruneNet( net, params.cuda )
 
   print( "Num Neurons: %d" % findNumNeurons( net ) )
 
@@ -1475,6 +1503,7 @@ if __name__ == '__main__':
   #print(' '.join('%5s' % classes[labels[j]] for j in range(4)))  # print labels
 
   # Tests
+  #nLive = findNumLiveNeuronsInLayers( net )  # test of findNumLiveNeuronsInLayers
   #net.apply(addOneToAllWeights)  # adds one to all of the weights in the model
   #net.apply( lambda w: softThreshWeights(w,t=1) )  #Applies soft threshold to all weights
   #net.apply( lambda w: softThreshTwoWeights(w,tConv=1,tLinear=10) )  #Applies two soft thresholds to weights
@@ -1532,6 +1561,12 @@ if __name__ == '__main__':
     with open( './results/results' + str(regPower) + '.pkl', 'wb') as f:
       pickle.dump( [ trainAccuracy, testAccuracy, costs, groupSparses, regLosses ], f )
     torch.save( net.state_dict(), './results/results' + str(regPower) + '.net' )
+
+
+
+  # Prune the network and re-train
+  nLives = findNumLiveNeuronsInLayers( net )  # test of findNumLiveNeuronsInLayers
+
 
 
 
