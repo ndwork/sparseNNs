@@ -331,6 +331,8 @@ def pruneNet( net, cuda, thresh=0 ):
         newMod.weight.data = torch.from_numpy( newWeight )
         newMod.weight.bias = torch.from_numpy( newBias )
 
+  return newNet
+
 
 def proxL2L1( net, t, cuda ):
   for thisMod in net.modules():
@@ -1489,7 +1491,7 @@ if __name__ == '__main__':
   if params.warmStartFile is not None:
     loadCheckpoint( net, params.warmStartFile )
 
-  #pruneNet( net, params.cuda )
+  #net = pruneNet( net, params.cuda )
 
   print( "Num Neurons: %d" % findNumNeurons( net ) )
 
