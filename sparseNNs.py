@@ -68,18 +68,18 @@ def findNumDeadNeurons( net, thresh=0 ):
       if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
         nNeurons = weightData.shape[0]
         for n in range(0, nNeurons):
-          thisData = weightData[n,:,:,:]
+          thisWeight = weightData[n,:,:,:]
           thisBias = biasData[n]
-          maxData = np.max( np.absolute( thisData ) )
-          maxBias = np.max( np.absolute( thisBias ) )
-          if np.max([maxData,maxBias]) <= thresh: nDead += 1
+          thisMag = np.sqrt( np.sum( thisWeight*thisWeight) + thisBias*thisBias )
+          if thisMag <= thresh: nDead += 1
 
       elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
           nNeurons = weightData.shape[0]
           for n in range(0, nNeurons):
-            maxData = np.max( np.absolute( weightData[n,:] ) )
-            maxBias = np.max( biasData[n] )
-            if np.max([maxData,maxBias]) <= thresh: nDead += 1
+            thisWeight = weightData[n,:]
+            thisBias = biasData[n]
+            thisMag = np.sqrt( np.sum( thisWeight*thisWeight) + thisBias*thisBias )
+            if thisMag <= thresh: nDead += 1
 
   return nDead
 
@@ -88,30 +88,30 @@ def findNumLiveNeuronsInLayers( net, thresh=0 ):
   nLayers = len( net._modules.items() )
   nLives = [None] * nLayers
   for thisName, thisMod in net._modules.items():
-    if not hasattr(thisMod, 'weight'): continue
+    if hasattr(thisMod, 'weight'): 
 
-    weightData = thisMod.weight.data.cpu().numpy()
-    biasData = thisMod.bias.data.cpu().numpy()
-
-    thisLive = 0
-    if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
-      nNeurons = weightData.shape[0]
-      for n in range(0, nNeurons):
-        thisWeight = weightData[n,:,:,:]
-        thisBias = biasData[n]
-        thisMag = np.sqrt( np.sum( thisWeight*thisWeight) + thisBias*thisBias )
-        if thisMag > thresh: thisLive += 1
-
-    elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
-      nNeurons = weightData.shape[0]
-      for n in range(0, nNeurons):
-        thisWeight = weightData[n,:]
-        thisBias = biasData[n]
-        thisMag = np.sqrt( np.sum( thisWeight*thisWeight) + thisBias*thisBias )
-        if thisMag > thresh: thisLive += 1
-
-    layerIndx = net.layerNames.index( thisName )
-    nLives[ layerIndx ] = thisLive
+      weightData = thisMod.weight.data.cpu().numpy()
+      biasData = thisMod.bias.data.cpu().numpy()
+  
+      thisLive = 0
+      if isinstance( thisMod, torch.nn.modules.conv.Conv2d ):
+        nNeurons = weightData.shape[0]
+        for n in range(0, nNeurons):
+          thisWeight = weightData[n,:,:,:]
+          thisBias = biasData[n]
+          thisMag = np.sqrt( np.sum( thisWeight*thisWeight) + thisBias*thisBias )
+          if thisMag > thresh: thisLive += 1
+  
+      elif isinstance( thisMod, torch.nn.modules.linear.Linear ):
+        nNeurons = weightData.shape[0]
+        for n in range(0, nNeurons):
+          thisWeight = weightData[n,:]
+          thisBias = biasData[n]
+          thisMag = np.sqrt( np.sum( thisWeight*thisWeight) + thisBias*thisBias )
+          if thisMag > thresh: thisLive += 1
+  
+      layerIndx = net.layerNames.index( thisName )
+      nLives[ layerIndx ] = thisLive
 
   return nLives
 
@@ -367,10 +367,10 @@ def proxL2L1( net, t, cuda ):
 
       if cuda: 
         thisMod.weight.data = torch.from_numpy( neurWeight ).cuda()
-        thisMod.weight.bias = torch.from_numpy( neurBias ).cuda()
+        thisMod.bias.data = torch.from_numpy( neurBias ).cuda()
       else:
         thisMod.weight.data = torch.from_numpy( neurWeight )
-        thisMod.weight.bias = torch.from_numpy( neurBias )
+        thisMod.bias.data = torch.from_numpy( neurBias )
 
 
 def proxL2LHalf( net, t, cuda ):
@@ -418,10 +418,10 @@ def proxL2LHalf( net, t, cuda ):
 
       if cuda:
         thisMod.weight.data = torch.from_numpy( neurWeight ).cuda()
-        thisMod.weight.bias = torch.from_numpy( neurBias ).cuda()
+        thisMod.bias.data = torch.from_numpy( neurBias ).cuda()
       else:
         thisMod.weight.data = torch.from_numpy( neurWeight )
-        thisMod.weight.bias = torch.from_numpy( neurBias )
+        thisMod.bias.data = torch.from_numpy( neurBias )
 
 
 def saveCheckpoint( net, filename ):
@@ -1010,6 +1010,7 @@ def trainWithStochSubGradDescent( dataLoader, net, criterion, params, learningRa
   #optimizer = optim.Adam( net.parameters(), lr=learningRate )
 
   k = 0
+  nNeurons = findNumNeurons( net )
   costs = [None] * ( nEpochs * np.min([len(dataLoader),nBatches]) )
   for epoch in range(nEpochs):  # loop over the dataset multiple times
 
@@ -1458,7 +1459,7 @@ class Params:
   learningRate = 0.05
   momentum = 0.0
   nBatches = 1000000
-  nEpochs = 1000
+  nEpochs = 500
   printEvery = 5
   regParam_normL1 = 0e1
   regParam_normL2L1 = 0e1
@@ -1470,8 +1471,8 @@ class Params:
   alpha = 0.8
   r = 0.9  # Backtracking line search parameter (must be between 0 and 1)
   s = 1.5  # Step size scaling parameter (must be greater than 1)
-  warmStartFile = None
-  #warmStartFile = './results/ssgResults.net'
+  #warmStartFile = None
+  warmStartFile = './results/ssgResults.net'
   #warmStartFile = './results/results0.net'
 
 
@@ -1487,7 +1488,7 @@ if __name__ == '__main__':
     params.datacase, params.batchSize, params.shuffle )
 
   #net = Net()
-  layerSizes = [ 300, 200, 100, 500, 200 ]
+  layerSizes = [ 500, 500, 500, 400, 300 ]
   net = smartNet( layerSizes )
   net = net.cuda() if params.cuda else net
   if params.warmStartFile is not None:
@@ -1549,7 +1550,9 @@ if __name__ == '__main__':
 
 
   baseCheckpointDir = params.checkpointDir
-  for regPower in range(0,10):
+  #costs = trainWithStochSubGradDescent( trainLoader, net, criterion, params, learningRate=params.learningRate )  # works with batch size of 1000 and step size of 0.1
+  #torch.save( net.state_dict(), './results/ssgResults.net' )
+  for regPower in range(4,20):
     params.checkpointDir = baseCheckpointDir + str(regPower)
     if not os.path.isdir( params.checkpointDir ):
       os.mkdir( params.checkpointDir )
@@ -1560,6 +1563,7 @@ if __name__ == '__main__':
     print( "Working on regPower: " + str(regPower) + ",  regParam: " + str(params.regParam_normL2L1) + ",  learningRate: " + str(params.learningRate) )
 
     (costs,groupSparses,regLosses) = trainWithStochProxGradDescent_regL2L1Norm( trainLoader, net, criterion, params, learningRate=params.learningRate )
+    torch.save( net.state_dict(), './results/trained_' + str(params.regParam_normL2L1 + '.net') )
 
     pruneNet( net, params.cuda )
     nNeurons = findNumNeurons( net )
